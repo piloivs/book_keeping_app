@@ -1,0 +1,2 @@
+"""Bookkeeping application backend."""
+

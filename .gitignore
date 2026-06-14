@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.local
+dashboard/.env.local
+data/warehouse/*.sqlite3
+data/warehouse/*.sqlite3-*
+logs/*.log
