@@ -13,4 +13,5 @@ dist/
 dashboard/.env.local
 data/warehouse/*.sqlite3
 data/warehouse/*.sqlite3-*
+data/raw/receipts/
 logs/*.log

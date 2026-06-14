@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .models import AccountType
+from .models import AccountType, ContactType, TransactionKind, TransactionStatus
 
 
 class AccountCreate(BaseModel):
@@ -91,3 +91,112 @@ class DashboardSummary(BaseModel):
     net_income: Decimal
     recent_entries: list[JournalEntryRead]
 
+
+class CompanySettingsUpdate(BaseModel):
+    company_name: str = Field(min_length=1, max_length=160)
+    registration_number: str | None = Field(default=None, max_length=40)
+    fiscal_year_start_month: int = Field(ge=1, le=12)
+    base_currency: str = Field(min_length=3, max_length=3)
+
+    @field_validator("base_currency")
+    @classmethod
+    def currency_uppercase(cls, value: str) -> str:
+        return value.upper()
+
+
+class CompanySettingsRead(CompanySettingsUpdate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    updated_at: datetime
+
+
+class ContactCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    type: ContactType
+    email: str | None = Field(default=None, max_length=160)
+    phone: str | None = Field(default=None, max_length=60)
+    tax_identifier: str | None = Field(default=None, max_length=80)
+    notes: str | None = None
+
+
+class ContactRead(ContactCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+
+
+class ReceiptPayload(BaseModel):
+    filename: str = Field(min_length=1, max_length=240)
+    content_type: str | None = Field(default=None, max_length=120)
+    content_base64: str = Field(min_length=1)
+
+
+class ReceiptRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    original_filename: str
+    stored_path: str
+    content_type: str | None
+    size_bytes: int
+    uploaded_at: datetime
+
+
+class OperationalTransactionCreate(BaseModel):
+    kind: TransactionKind
+    status: TransactionStatus = TransactionStatus.DRAFT
+    transaction_date: date
+    description: str = Field(min_length=1, max_length=240)
+    reference: str | None = Field(default=None, max_length=80)
+    amount: Decimal
+    contact_id: int | None = None
+    debit_account_id: int
+    credit_account_id: int
+    receipt: ReceiptPayload | None = None
+
+    @field_validator("amount")
+    @classmethod
+    def amount_must_be_positive(cls, value: Decimal) -> Decimal:
+        if value <= 0:
+            raise ValueError("Amount must be greater than zero.")
+        return value.quantize(Decimal("0.01"))
+
+
+class OperationalTransactionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    kind: TransactionKind
+    status: TransactionStatus
+    transaction_date: date
+    description: str
+    reference: str | None
+    amount: Decimal
+    contact: ContactRead | None
+    debit_account: AccountRead
+    credit_account: AccountRead
+    receipt: ReceiptRead | None
+    journal_entry_id: int | None
+    created_at: datetime
+    posted_at: datetime | None
+
+
+class ProfitAndLossReport(BaseModel):
+    revenue: Decimal
+    expenses: Decimal
+    net_income: Decimal
+    revenue_accounts: list[AccountRead]
+    expense_accounts: list[AccountRead]
+
+
+class BalanceSheetReport(BaseModel):
+    assets: Decimal
+    liabilities: Decimal
+    equity: Decimal
+    retained_earnings: Decimal
+    total_liabilities_and_equity: Decimal
+    asset_accounts: list[AccountRead]
+    liability_accounts: list[AccountRead]
+    equity_accounts: list[AccountRead]

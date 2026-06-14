@@ -35,6 +35,33 @@ select {
   margin-bottom: 22px;
 }
 
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.tab {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #dce4e7;
+  border-radius: 8px;
+  color: #405760;
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: 700;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+}
+
+.tab.active {
+  background: #206b5d;
+  border-color: #206b5d;
+  color: #ffffff;
+}
+
 .eyebrow {
   color: #56707a;
   font-size: 0.78rem;
@@ -149,6 +176,16 @@ h2 {
   margin-bottom: 16px;
 }
 
+.reportGrid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settingsPanel {
+  max-width: 620px;
+}
+
 .panel {
   min-width: 0;
   padding: 16px;
@@ -170,6 +207,31 @@ h2 {
 .transactionForm {
   display: grid;
   gap: 12px;
+}
+
+.segmented {
+  background: #eef3f4;
+  border: 1px solid #dce4e7;
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: 1fr 1fr;
+  padding: 4px;
+}
+
+.segmented button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: #405760;
+  cursor: pointer;
+  font-weight: 800;
+  min-height: 34px;
+}
+
+.segmented button.selected {
+  background: #ffffff;
+  color: #12353b;
 }
 
 label {
@@ -194,6 +256,17 @@ select {
 .formMessage {
   color: #206b5d;
   font-size: 0.86rem;
+}
+
+.smallButton {
+  background: #ffffff;
+  border: 1px solid #c9d7db;
+  border-radius: 8px;
+  color: #206b5d;
+  cursor: pointer;
+  font-weight: 800;
+  min-height: 34px;
+  padding: 0 12px;
 }
 
 .tableWrap {
@@ -282,9 +355,32 @@ th {
   text-align: right;
 }
 
+.transactionMeta {
+  align-items: center;
+  color: #587079;
+  display: grid;
+  font-size: 0.88rem;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr 1fr auto;
+}
+
+.reportLine {
+  align-items: center;
+  border-bottom: 1px solid #edf1f2;
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 0;
+}
+
+.reportLine.strong {
+  color: #12353b;
+  font-weight: 900;
+}
+
 @media (max-width: 880px) {
   .metrics,
-  .workspace {
+  .workspace,
+  .reportGrid {
     grid-template-columns: 1fr;
   }
 
@@ -303,9 +399,12 @@ th {
     grid-template-columns: 1fr;
   }
 
+  .transactionMeta {
+    grid-template-columns: 1fr;
+  }
+
   .entryLines span:nth-child(2),
   .entryLines span:nth-child(3) {
     text-align: left;
   }
 }
-

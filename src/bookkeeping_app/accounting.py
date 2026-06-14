@@ -9,12 +9,16 @@ from .schemas import JournalEntryCreate, JournalEntryRead, JournalLineRead
 
 DEFAULT_ACCOUNTS = [
     ("1000", "Cash", AccountType.ASSET, "Primary cash account"),
+    ("1010", "Bank Account", AccountType.ASSET, "Primary operating bank account"),
     ("1100", "Accounts Receivable", AccountType.ASSET, "Customer balances due"),
     ("2000", "Accounts Payable", AccountType.LIABILITY, "Vendor balances owed"),
     ("3000", "Owner Equity", AccountType.EQUITY, "Owner investment and retained earnings"),
+    ("3900", "Retained Earnings", AccountType.EQUITY, "Accumulated prior-year earnings"),
     ("4000", "Sales Revenue", AccountType.REVENUE, "Income from sales"),
+    ("4100", "Consulting Revenue", AccountType.REVENUE, "Consulting and project income"),
     ("5000", "Office Supplies", AccountType.EXPENSE, "Office supplies and consumables"),
     ("5100", "Software Expense", AccountType.EXPENSE, "Software subscriptions and tools"),
+    ("5200", "Professional Fees", AccountType.EXPENSE, "Corporate secretary, accounting, and legal fees"),
 ]
 
 
@@ -49,7 +53,7 @@ def list_accounts_with_balances(db: Session) -> list[tuple[Account, Decimal]]:
     return [(account, normal_balance(account, Decimal(balance or 0))) for account, balance in rows]
 
 
-def create_journal_entry(db: Session, payload: JournalEntryCreate) -> JournalEntry:
+def create_journal_entry(db: Session, payload: JournalEntryCreate, *, commit: bool = True) -> JournalEntry:
     account_ids = {line.account_id for line in payload.lines}
     found_ids = set(db.scalars(select(Account.id).where(Account.id.in_(account_ids))).all())
     missing_ids = account_ids - found_ids
@@ -71,7 +75,10 @@ def create_journal_entry(db: Session, payload: JournalEntryCreate) -> JournalEnt
         ],
     )
     db.add(entry)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(entry)
     return entry
 
@@ -105,4 +112,3 @@ def serialize_entry(entry: JournalEntry) -> JournalEntryRead:
 def recent_entries(db: Session, limit: int = 10) -> list[JournalEntryRead]:
     entries = db.scalars(entry_query().order_by(JournalEntry.entry_date.desc(), JournalEntry.id.desc()).limit(limit)).all()
     return [serialize_entry(entry) for entry in entries]
-
