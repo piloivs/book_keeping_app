@@ -12,7 +12,15 @@ Open PowerShell in the project folder:
 cd C:\Users\User\Documents\Projects\book_keeping_app
 ```
 
-Start the backend API:
+Start the app:
+
+```powershell
+.\start-app.cmd
+```
+
+This starts both the backend API and the frontend dashboard. Press Ctrl+C in that terminal to stop both.
+
+If you want to run the two parts manually, start the backend API:
 
 ```powershell
 .venv\Scripts\python.exe -m uvicorn bookkeeping_app.main:app --reload --host 127.0.0.1 --port 8000
@@ -52,6 +60,9 @@ The main navigation tabs are:
 
 - Dashboard: account balances, operational queue, and recent journal entries.
 - Transactions: daily income and expense capture.
+- Purchasing: vendor purchase order creation, issuance, and cancellation.
+- Payroll: salary runs, CPF withholding, employer CPF, and payroll posting.
+- Employees: staff master records, current salary, and CPF profile.
 - Contacts: customers and vendors.
 - Reports: current profit and loss and balance sheet views.
 - Settings: company profile and reporting defaults.
@@ -65,10 +76,13 @@ Default accounts include:
 - 1000 Cash
 - 1100 Accounts Receivable
 - 2000 Accounts Payable
+- 2100 CPF Payable
 - 3000 Owner Equity
 - 4000 Sales Revenue
 - 5000 Office Supplies
 - 5100 Software Expense
+- 5300 Salaries and Wages
+- 5310 Employer CPF Expense
 
 Each account has a type and a current balance.
 
@@ -107,6 +121,109 @@ data/raw/receipts/
 ```
 
 Do not manually edit receipt files after upload.
+
+Click Extract beside a receipt-backed transaction to run local Tesseract OCR and local Ollama structured parsing. The app stores a review result with merchant, receipt date, subtotal, tax, total, visible text, and line items. If Tesseract or Ollama is not available, the transaction will show a setup message instead of changing the receipt or ledger.
+
+Receipt extraction currently supports image uploads such as JPG, PNG, or TIFF. It is meant to speed up data entry, not replace review. Check extracted totals and line descriptions before relying on them.
+
+## Payroll
+
+Use the Payroll tab to record staff salary payments and CPF.
+
+If the employee already exists in the Employees tab, choose the employee from the Employee field. The payroll form will fill in the employee name, current monthly salary, CPF subject wage, and CPF rates from the employee record. You can still edit the payroll run before saving.
+
+Payroll fields:
+
+- Status: Draft or Posted.
+- Employee.
+- Employee Name.
+- Period Start and Period End.
+- Pay Date.
+- Gross Salary.
+- CPF Subject Wage.
+- Employee CPF %.
+- Employer CPF %.
+- Salary Expense account.
+- Employer CPF Expense account.
+- Paid From account.
+- CPF Payable account.
+- Notes.
+
+The default CPF fields use the common 2026 full-rate case for a Singapore Citizen or third-year-and-above Singapore Permanent Resident who is age 55 or below: 20% employee CPF and 17% employer CPF. CPF rules vary by citizenship or PR year, age group, wage band, Ordinary Wage ceiling, Additional Wage ceiling, and rounding rules, so review the CPF fields before posting each payroll run.
+
+When payroll is posted, the app creates a journal entry like this:
+
+- Debit Salaries and Wages for gross salary.
+- Debit Employer CPF Expense for employer CPF.
+- Credit Bank Account for net pay to the employee.
+- Credit CPF Payable for employee CPF plus employer CPF.
+
+Example for a $5,000 gross monthly salary at 20% employee CPF and 17% employer CPF:
+
+- Gross salary: $5,000.00
+- Employee CPF withheld: $1,000.00
+- Employer CPF expense: $850.00
+- Net pay to employee: $4,000.00
+- CPF payable: $1,850.00.
+
+To print a salary slip:
+
+1. Save the payroll run as Posted, or post a Draft payroll run.
+2. In Payroll Runs, click Print.
+3. Review the salary slip.
+4. Click Print in the salary slip window.
+
+The salary slip includes the employer name, employee name, pay date, salary period, gross salary, employee CPF deduction, net salary paid, employer CPF, and total CPF payable. MOM requires itemised pay slips for employees covered by the Employment Act, and pay slips can be soft or hard copy.
+
+## Purchasing
+
+Use the Purchasing tab to prepare and issue purchase orders to vendors.
+
+Before issuing a PO, create the vendor in Contacts and set Vendor Qualification to Qualified. The app lets you create draft POs for vendor contacts that are still pending, but it blocks issuing POs unless the vendor is qualified.
+
+Purchase order fields:
+
+- Status: Draft or Issued.
+- PO Number: optional. If blank, the app generates a number such as `PO-202606-0001`.
+- Vendor.
+- Issue Date.
+- Expected Delivery.
+- Currency.
+- Payment Terms from the proposal or accepted quote.
+- Line descriptions, quantities, unit prices, tax amounts, and expense accounts.
+- Delivery Instructions.
+- Notes.
+
+PO statuses currently supported by the backend are draft, issued, partially received, received, billed, closed, and cancelled. The current browser workflow supports creating draft or issued POs, issuing draft POs, and cancelling open POs.
+
+Purchase orders do not affect the ledger or reports yet. They represent a purchasing commitment. Accounting should happen later when a supplier invoice or bill is recorded from the PO.
+
+## Employees
+
+Use the Employees tab to store staff information used by payroll.
+
+Employee fields:
+
+- Staff ID.
+- Status: Active or Inactive.
+- Name.
+- Job Title.
+- Email.
+- Phone.
+- Start Date.
+- Current Monthly Salary.
+- CPF Profile.
+- Employee CPF %.
+- Employer CPF %.
+- Notes.
+
+CPF Profile options:
+
+- SC / 3rd-year PR, 55 and below: defaults to 20% employee CPF and 17% employer CPF.
+- Custom rates: lets you enter CPF percentages manually.
+- Not applicable: sets CPF percentages to 0%.
+
+The current version stores the employee's current salary directly on the employee record. A future salary history feature should be added before using this for long-term historical payroll records with salary changes.
 
 ## Manual Journal Entries
 
@@ -159,6 +276,16 @@ Supported contact types:
 - Both
 
 Contacts can be attached to income and expense transactions.
+
+Vendor contacts also include qualification details used by Purchasing:
+
+- Vendor Qualification: Pending, Qualified, Suspended, or Rejected.
+- Default Payment Terms.
+- Default Expense Account.
+- Qualification Expiry.
+- Qualification Notes.
+
+Only qualified vendor contacts can receive issued purchase orders.
 
 ## Reports
 
@@ -230,5 +357,6 @@ This prototype does not yet include:
 - Invoices and bills
 - Bank imports and reconciliation
 - Document preview/download from the UI
+- PO receiving and PO-to-bill matching
 - Formal financial statement screens
 - Multi-user permissions

@@ -12,6 +12,7 @@ DEFAULT_ACCOUNTS = [
     ("1010", "Bank Account", AccountType.ASSET, "Primary operating bank account"),
     ("1100", "Accounts Receivable", AccountType.ASSET, "Customer balances due"),
     ("2000", "Accounts Payable", AccountType.LIABILITY, "Vendor balances owed"),
+    ("2100", "CPF Payable", AccountType.LIABILITY, "CPF contributions payable to CPF Board"),
     ("3000", "Owner Equity", AccountType.EQUITY, "Owner investment and retained earnings"),
     ("3900", "Retained Earnings", AccountType.EQUITY, "Accumulated prior-year earnings"),
     ("4000", "Sales Revenue", AccountType.REVENUE, "Income from sales"),
@@ -19,6 +20,8 @@ DEFAULT_ACCOUNTS = [
     ("5000", "Office Supplies", AccountType.EXPENSE, "Office supplies and consumables"),
     ("5100", "Software Expense", AccountType.EXPENSE, "Software subscriptions and tools"),
     ("5200", "Professional Fees", AccountType.EXPENSE, "Corporate secretary, accounting, and legal fees"),
+    ("5300", "Salaries and Wages", AccountType.EXPENSE, "Gross staff salaries and wages"),
+    ("5310", "Employer CPF Expense", AccountType.EXPENSE, "Employer CPF contributions"),
 ]
 
 

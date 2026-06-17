@@ -209,6 +209,72 @@ h2 {
   gap: 12px;
 }
 
+.formGrid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.payrollPreview {
+  background: #f4f8f7;
+  border: 1px solid #dce4e7;
+  border-radius: 8px;
+  color: #405760;
+  display: grid;
+  font-size: 0.86rem;
+  font-weight: 800;
+  gap: 8px;
+  padding: 12px;
+}
+
+.statusNote {
+  background: #f4f8f7;
+  border: 1px solid #dce4e7;
+  border-radius: 8px;
+  color: #405760;
+  font-size: 0.86rem;
+  font-weight: 800;
+  padding: 10px 12px;
+}
+
+.statusNote.warning {
+  background: #fff7f2;
+  border-color: #efd5c6;
+  color: #8a3c1f;
+}
+
+.lineEditor {
+  display: grid;
+  gap: 10px;
+}
+
+.poLine {
+  border: 1px solid #edf1f2;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+.payrollMeta {
+  grid-template-columns: 1fr 1fr 1fr auto;
+}
+
+.purchaseMeta {
+  grid-template-columns: 1fr 1fr 1fr auto;
+}
+
+.employeeMeta {
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+}
+
+.rowActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .segmented {
   background: #eef3f4;
   border: 1px solid #dce4e7;
@@ -259,12 +325,16 @@ select {
 }
 
 .smallButton {
+  align-items: center;
   background: #ffffff;
   border: 1px solid #c9d7db;
   border-radius: 8px;
   color: #206b5d;
   cursor: pointer;
+  display: inline-flex;
+  gap: 6px;
   font-weight: 800;
+  justify-content: center;
   min-height: 34px;
   padding: 0 12px;
 }
@@ -364,6 +434,42 @@ th {
   grid-template-columns: 1fr 1fr 1fr auto;
 }
 
+.receiptExtraction {
+  background: #f6faf9;
+  border: 1px solid #d7e5e2;
+  border-radius: 8px;
+  color: #254247;
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px;
+}
+
+.receiptExtraction.error {
+  background: #fff7f2;
+  border-color: #efd5c6;
+  color: #8a3c1f;
+}
+
+.receiptExtractionHeader,
+.receiptLineItems div {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 110px 110px;
+}
+
+.receiptExtractionHeader span,
+.receiptLineItems span {
+  color: #587079;
+  font-size: 0.86rem;
+}
+
+.receiptExtractionHeader span:last-child,
+.receiptLineItems span:last-child {
+  text-align: right;
+}
+
 .reportLine {
   align-items: center;
   border-bottom: 1px solid #edf1f2;
@@ -375,6 +481,121 @@ th {
 .reportLine.strong {
   color: #12353b;
   font-weight: 900;
+}
+
+.payslipOverlay {
+  align-items: start;
+  background: rgb(24 32 36 / 0.46);
+  display: grid;
+  inset: 0;
+  justify-items: center;
+  overflow: auto;
+  padding: 28px 16px;
+  position: fixed;
+  z-index: 10;
+}
+
+.payslipSheet {
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgb(24 32 36 / 0.24);
+  color: #182024;
+  max-width: 820px;
+  padding: 28px;
+  width: 100%;
+}
+
+.payslipActions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-bottom: 22px;
+}
+
+.payslipHeader {
+  align-items: start;
+  border-bottom: 2px solid #182024;
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 18px;
+}
+
+.payslipHeader h2 {
+  font-size: 1.45rem;
+  margin-bottom: 4px;
+}
+
+.payslipHeader span,
+.payslipHeader strong {
+  display: block;
+}
+
+.payslipHeader div:last-child {
+  text-align: right;
+}
+
+.payslipGrid,
+.payslipColumns {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.payslipGrid {
+  margin: 22px 0;
+}
+
+.payslipField {
+  border: 1px solid #dce4e7;
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+}
+
+.payslipField span,
+.payslipNotes {
+  color: #64777e;
+  font-size: 0.86rem;
+}
+
+.payslipColumns section,
+.payslipSummary {
+  border: 1px solid #dce4e7;
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.payslipColumns h3 {
+  font-size: 0.96rem;
+  margin: 0 0 10px;
+}
+
+.payslipSummary {
+  margin-top: 14px;
+}
+
+.payslipLine {
+  align-items: center;
+  border-bottom: 1px solid #edf1f2;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+}
+
+.payslipLine:last-child {
+  border-bottom: 0;
+}
+
+.payslipLine.strong {
+  color: #12353b;
+  font-weight: 900;
+}
+
+.payslipNotes {
+  margin-top: 14px;
 }
 
 @media (max-width: 880px) {
@@ -403,8 +624,69 @@ th {
     grid-template-columns: 1fr;
   }
 
+  .formGrid,
+  .employeeMeta,
+  .payrollMeta,
+  .purchaseMeta {
+    grid-template-columns: 1fr;
+  }
+
+  .rowActions {
+    justify-content: flex-start;
+  }
+
   .entryLines span:nth-child(2),
   .entryLines span:nth-child(3) {
     text-align: left;
+  }
+
+  .payslipHeader,
+  .payslipGrid,
+  .payslipColumns {
+    grid-template-columns: 1fr;
+  }
+
+  .payslipHeader {
+    display: grid;
+  }
+
+  .payslipHeader div:last-child {
+    text-align: left;
+  }
+}
+
+@media print {
+  body {
+    background: #ffffff;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .printArea,
+  .printArea * {
+    visibility: visible;
+  }
+
+  .noPrint,
+  .noPrint * {
+    display: none !important;
+  }
+
+  .payslipOverlay {
+    background: #ffffff;
+    display: block;
+    inset: auto;
+    overflow: visible;
+    padding: 0;
+    position: static;
+  }
+
+  .payslipSheet {
+    border-radius: 0;
+    box-shadow: none;
+    max-width: none;
+    padding: 0;
   }
 }

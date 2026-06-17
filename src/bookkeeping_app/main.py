@@ -16,12 +16,23 @@ from .database import Base, SessionLocal, engine, get_db
 from .models import Account, AccountType
 from .operations import (
     balance_sheet,
+    apply_local_schema_updates,
+    cancel_purchase_order,
     create_contact,
+    create_employee,
     create_operational_transaction,
+    create_payroll_run,
+    create_purchase_order,
+    extract_receipt_details,
     get_company_settings,
     list_contacts,
+    list_employees,
     list_operational_transactions,
+    list_payroll_runs,
+    list_purchase_orders,
+    post_payroll_run,
     post_operational_transaction,
+    issue_purchase_order,
     profit_and_loss,
     seed_company_settings,
     update_company_settings,
@@ -35,11 +46,18 @@ from .schemas import (
     ContactCreate,
     ContactRead,
     DashboardSummary,
+    EmployeeCreate,
+    EmployeeRead,
     JournalEntryCreate,
     JournalEntryRead,
     OperationalTransactionCreate,
     OperationalTransactionRead,
+    PayrollRunCreate,
+    PayrollRunRead,
     ProfitAndLossReport,
+    PurchaseOrderCreate,
+    PurchaseOrderRead,
+    ReceiptExtractionRead,
 )
 
 settings = get_settings()
@@ -58,6 +76,7 @@ app.add_middleware(
 def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:
+        apply_local_schema_updates(db)
         seed_default_accounts(db)
         seed_company_settings(db)
 
@@ -108,6 +127,19 @@ def post_contact(payload: ContactCreate, db: Session = Depends(get_db)) -> Conta
     return create_contact(db, payload)
 
 
+@app.get("/employees", response_model=list[EmployeeRead])
+def get_employees(db: Session = Depends(get_db)) -> list[EmployeeRead]:
+    return list_employees(db)
+
+
+@app.post("/employees", response_model=EmployeeRead, status_code=201)
+def post_employee(payload: EmployeeCreate, db: Session = Depends(get_db)) -> EmployeeRead:
+    try:
+        return create_employee(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/transactions", response_model=list[OperationalTransactionRead])
 def get_transactions(limit: int = 50, db: Session = Depends(get_db)) -> list[OperationalTransactionRead]:
     return list_operational_transactions(db, limit=limit)
@@ -125,6 +157,64 @@ def post_transaction(payload: OperationalTransactionCreate, db: Session = Depend
 def post_transaction_to_ledger(transaction_id: int, db: Session = Depends(get_db)) -> OperationalTransactionRead:
     try:
         return post_operational_transaction(db, transaction_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/receipts/{receipt_id}/extract", response_model=ReceiptExtractionRead)
+def post_receipt_extraction(receipt_id: int, db: Session = Depends(get_db)) -> ReceiptExtractionRead:
+    try:
+        return extract_receipt_details(db, receipt_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/payroll", response_model=list[PayrollRunRead])
+def get_payroll(limit: int = 50, db: Session = Depends(get_db)) -> list[PayrollRunRead]:
+    return list_payroll_runs(db, limit=limit)
+
+
+@app.post("/payroll", response_model=PayrollRunRead, status_code=201)
+def post_payroll(payload: PayrollRunCreate, db: Session = Depends(get_db)) -> PayrollRunRead:
+    try:
+        return create_payroll_run(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/payroll/{payroll_id}/post", response_model=PayrollRunRead)
+def post_payroll_to_ledger(payroll_id: int, db: Session = Depends(get_db)) -> PayrollRunRead:
+    try:
+        return post_payroll_run(db, payroll_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/purchase-orders", response_model=list[PurchaseOrderRead])
+def get_purchase_orders(limit: int = 50, db: Session = Depends(get_db)) -> list[PurchaseOrderRead]:
+    return list_purchase_orders(db, limit=limit)
+
+
+@app.post("/purchase-orders", response_model=PurchaseOrderRead, status_code=201)
+def post_purchase_order(payload: PurchaseOrderCreate, db: Session = Depends(get_db)) -> PurchaseOrderRead:
+    try:
+        return create_purchase_order(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/purchase-orders/{purchase_order_id}/issue", response_model=PurchaseOrderRead)
+def post_purchase_order_issue(purchase_order_id: int, db: Session = Depends(get_db)) -> PurchaseOrderRead:
+    try:
+        return issue_purchase_order(db, purchase_order_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/purchase-orders/{purchase_order_id}/cancel", response_model=PurchaseOrderRead)
+def post_purchase_order_cancel(purchase_order_id: int, db: Session = Depends(get_db)) -> PurchaseOrderRead:
+    try:
+        return cancel_purchase_order(db, purchase_order_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

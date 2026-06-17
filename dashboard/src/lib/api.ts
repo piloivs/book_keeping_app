@@ -2,6 +2,19 @@ export type AccountType = "asset" | "liability" | "equity" | "revenue" | "expens
 export type ContactType = "customer" | "vendor" | "both";
 export type TransactionKind = "expense" | "income";
 export type TransactionStatus = "draft" | "reviewed" | "posted";
+export type PayrollStatus = "draft" | "posted";
+export type EmployeeStatus = "active" | "inactive";
+export type CpfProfile = "sc_or_third_year_pr_55_below" | "custom" | "not_applicable";
+export type ReceiptExtractionStatus = "not_configured" | "completed" | "failed";
+export type VendorQualificationStatus = "pending" | "qualified" | "suspended" | "rejected";
+export type PurchaseOrderStatus =
+  | "draft"
+  | "issued"
+  | "partially_received"
+  | "received"
+  | "billed"
+  | "closed"
+  | "cancelled";
 
 export type Account = {
   id: number;
@@ -59,6 +72,11 @@ export type Contact = {
   email: string | null;
   phone: string | null;
   tax_identifier: string | null;
+  vendor_qualification_status: VendorQualificationStatus;
+  payment_terms: string | null;
+  default_expense_account_id: number | null;
+  qualification_notes: string | null;
+  qualification_expires_on: string | null;
   notes: string | null;
   created_at: string;
 };
@@ -69,7 +87,73 @@ export type ContactPayload = {
   email?: string;
   phone?: string;
   tax_identifier?: string;
+  vendor_qualification_status?: VendorQualificationStatus;
+  payment_terms?: string;
+  default_expense_account_id?: number;
+  qualification_notes?: string;
+  qualification_expires_on?: string;
   notes?: string;
+};
+
+export type Employee = {
+  id: number;
+  staff_id: string | null;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  job_title: string | null;
+  status: EmployeeStatus;
+  start_date: string | null;
+  monthly_salary: string;
+  cpf_profile: CpfProfile;
+  employee_cpf_rate: string;
+  employer_cpf_rate: string;
+  notes: string | null;
+  created_at: string;
+};
+
+export type EmployeePayload = {
+  staff_id?: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  job_title?: string;
+  status: EmployeeStatus;
+  start_date?: string;
+  monthly_salary: string;
+  cpf_profile: CpfProfile;
+  employee_cpf_rate: string;
+  employer_cpf_rate: string;
+  notes?: string;
+};
+
+export type ReceiptLineItem = {
+  id: number;
+  description: string;
+  quantity: string | null;
+  unit_price: string | null;
+  amount: string | null;
+  confidence: string | null;
+};
+
+export type ReceiptExtraction = {
+  id: number;
+  receipt_id: number;
+  status: ReceiptExtractionStatus;
+  provider: string;
+  model: string | null;
+  merchant_name: string | null;
+  receipt_date: string | null;
+  currency: string | null;
+  subtotal: string | null;
+  tax: string | null;
+  total: string | null;
+  confidence: string | null;
+  raw_text: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  line_items: ReceiptLineItem[];
 };
 
 export type Receipt = {
@@ -79,6 +163,7 @@ export type Receipt = {
   content_type: string | null;
   size_bytes: number;
   uploaded_at: string;
+  extraction: ReceiptExtraction | null;
 };
 
 export type OperationalTransaction = {
@@ -113,6 +198,98 @@ export type OperationalTransactionPayload = {
     content_type?: string;
     content_base64: string;
   };
+};
+
+export type PayrollRun = {
+  id: number;
+  status: PayrollStatus;
+  employee: Employee | null;
+  employee_name: string;
+  period_start: string;
+  period_end: string;
+  pay_date: string;
+  gross_salary: string;
+  cpf_subject_wage: string;
+  employee_cpf_rate: string;
+  employer_cpf_rate: string;
+  employee_cpf: string;
+  employer_cpf: string;
+  net_pay: string;
+  salary_account: Account;
+  employer_cpf_account: Account;
+  cash_account: Account;
+  cpf_payable_account: Account;
+  notes: string | null;
+  journal_entry_id: number | null;
+  created_at: string;
+  posted_at: string | null;
+};
+
+export type PayrollRunPayload = {
+  status: PayrollStatus;
+  employee_id?: number;
+  employee_name: string;
+  period_start: string;
+  period_end: string;
+  pay_date: string;
+  gross_salary: string;
+  cpf_subject_wage?: string;
+  employee_cpf_rate: string;
+  employer_cpf_rate: string;
+  salary_account_id: number;
+  employer_cpf_account_id: number;
+  cash_account_id: number;
+  cpf_payable_account_id: number;
+  notes?: string;
+};
+
+export type PurchaseOrderLine = {
+  id: number;
+  description: string;
+  quantity: string;
+  unit_price: string;
+  tax_amount: string;
+  line_total: string;
+  expense_account: Account;
+};
+
+export type PurchaseOrder = {
+  id: number;
+  po_number: string;
+  status: PurchaseOrderStatus;
+  vendor: Contact;
+  issue_date: string;
+  expected_delivery_date: string | null;
+  currency: string;
+  payment_terms: string | null;
+  notes: string | null;
+  delivery_instructions: string | null;
+  subtotal: string;
+  tax_total: string;
+  total: string;
+  lines: PurchaseOrderLine[];
+  issued_at: string | null;
+  cancelled_at: string | null;
+  created_at: string;
+};
+
+export type PurchaseOrderPayload = {
+  po_number?: string;
+  status: PurchaseOrderStatus;
+  vendor_id: number;
+  issue_date: string;
+  expected_delivery_date?: string;
+  currency: string;
+  payment_terms?: string;
+  notes?: string;
+  delivery_instructions?: string;
+  lines: Array<{
+    description: string;
+    quantity: string;
+    unit_price: string;
+    tax_amount: string;
+    expense_account_id: number;
+  }>;
 };
 
 export type ProfitAndLoss = {
@@ -179,6 +356,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  employees: () => request<Employee[]>("/employees"),
+  createEmployee: (payload: EmployeePayload) =>
+    request<Employee>("/employees", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   transactions: () => request<OperationalTransaction[]>("/transactions"),
   createTransaction: (payload: OperationalTransactionPayload) =>
     request<OperationalTransaction>("/transactions", {
@@ -187,6 +370,34 @@ export const api = {
     }),
   postTransaction: (id: number) =>
     request<OperationalTransaction>(`/transactions/${id}/post`, {
+      method: "POST"
+    }),
+  extractReceipt: (id: number) =>
+    request<ReceiptExtraction>(`/receipts/${id}/extract`, {
+      method: "POST"
+    }),
+  payroll: () => request<PayrollRun[]>("/payroll"),
+  createPayroll: (payload: PayrollRunPayload) =>
+    request<PayrollRun>("/payroll", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  postPayroll: (id: number) =>
+    request<PayrollRun>(`/payroll/${id}/post`, {
+      method: "POST"
+    }),
+  purchaseOrders: () => request<PurchaseOrder[]>("/purchase-orders"),
+  createPurchaseOrder: (payload: PurchaseOrderPayload) =>
+    request<PurchaseOrder>("/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  issuePurchaseOrder: (id: number) =>
+    request<PurchaseOrder>(`/purchase-orders/${id}/issue`, {
+      method: "POST"
+    }),
+  cancelPurchaseOrder: (id: number) =>
+    request<PurchaseOrder>(`/purchase-orders/${id}/cancel`, {
       method: "POST"
     }),
   profitAndLoss: () => request<ProfitAndLoss>("/reports/profit-and-loss"),
