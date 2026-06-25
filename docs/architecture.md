@@ -1,8 +1,10 @@
-# Bookkeeping App Architecture
+# IntelliArtAI Operations Core Architecture
 
 ## Purpose
 
-This is a local-first bookkeeping, HR, and payroll prototype for IntelliArtAI. It is designed for a single local user and stores data in SQLite by default.
+This is a local-first bookkeeping and SME operations-core prototype for IntelliArtAI. It is designed for a single local user and stores data in SQLite by default.
+
+The bookkeeping ledger is the trusted financial spine of the app. Business modules such as Sales, Purchasing, HR & Payroll, Documents, Reports, and future AI-assisted workflows should create operational records in their own domains, then post financial effects through backend accounting/posting services.
 
 ## Stack
 
@@ -29,6 +31,7 @@ When the backend starts:
 2. `apply_local_schema_updates(db)` applies small local SQLite schema patches that `create_all` cannot apply to existing tables.
 3. `seed_default_accounts(db)` inserts missing default accounts.
 4. `seed_company_settings(db)` inserts default company settings if needed.
+5. `post_unposted_paid_sales_order_deposits(db)` backfills paid sales order deposits that were saved before a deposit transaction was created.
 
 The local `start-app.cmd` wrapper launches `start-app.ps1`, which starts both backend and frontend dev servers.
 
@@ -39,12 +42,18 @@ Core bookkeeping:
 - `Account`: chart of accounts.
 - `JournalEntry`: balanced accounting entry header.
 - `JournalLine`: debit and credit lines.
-- `OperationalTransaction`: income or expense capture that can post into a journal entry.
+- `OperationalTransaction`: expense, income, or paid deposit capture that can post into a journal entry.
 - `Receipt`: local receipt metadata, with files stored under `data/raw/receipts/`.
 - `ReceiptExtraction`: AI-extracted receipt header fields, status, confidence, raw text, and provider metadata.
 - `ReceiptLineItem`: extracted receipt line descriptions, quantities, prices, amounts, and confidence.
 - `PurchaseOrder`: purchasing commitment issued to a vendor, including the PO-specific payment terms from the accepted proposal or quote. It does not post to the ledger by itself.
 - `PurchaseOrderLine`: item or service lines with quantity, unit price, tax amount, and expense account.
+- `SalesOrder`: inbound client purchase order captured from a customer, including the client's PO reference, internal sales order number, terms, deposit requirements, and acceptance status. Paid deposits post to the ledger through a linked operational deposit transaction.
+- `SalesOrderLine`: customer order lines with quantity, unit price, tax amount, and revenue account.
+- `SalesInvoice`: formal customer invoice with issue date, due date, status, customer, optional linked sales order, journal entry, and payment status.
+- `SalesInvoiceLine`: invoice line items with quantity, unit price, tax amount, and revenue account.
+- `CustomerReceipt`: customer payment receipt posted to bank/cash and Accounts Receivable.
+- `CustomerReceiptAllocation`: allocation of a customer receipt to one or more sales invoices.
 
 Company and contacts:
 
@@ -70,6 +79,8 @@ Defined in `src/bookkeeping_app/accounting.py`.
 - `1100` Accounts Receivable
 - `2000` Accounts Payable
 - `2100` CPF Payable
+- `2150` Deferred Revenue
+- `2200` GST Output Tax
 - `3000` Owner Equity
 - `3900` Retained Earnings
 - `4000` Sales Revenue
@@ -86,6 +97,7 @@ Operational transaction posting creates a two-line journal entry:
 
 - Expense: debit expense account, credit cash/bank or accounts payable.
 - Income: debit cash/bank or receivable account, credit revenue account.
+- Deposit: debit cash/bank or receivable account, credit liability account.
 
 Payroll posting creates a balanced journal entry:
 
@@ -97,6 +109,10 @@ Payroll posting creates a balanced journal entry:
 Zero-value CPF lines are omitted so payroll with no CPF still posts cleanly.
 
 Purchase orders are non-posting procurement records. A PO can be drafted for a vendor contact, but issuing requires the vendor qualification status to be `qualified`. The current implementation records the purchasing commitment only; supplier billing and payment should later create accounting entries through a PO-to-bill workflow.
+
+Sales orders are client PO records. They can be created for customer or both-type contacts, accepted from draft/received status, and cancelled while still open. Deposit fields record whether an upfront 5%, 10%, or custom deposit is required, due, requested, invoiced, paid, or applied. Deposits marked Paid create one linked posted operational deposit transaction that debits `1010` Bank Account and credits `2150` Deferred Revenue. Invoice creation, deposit application, and earned revenue recognition should later create the remaining accounting entries from a sales order.
+
+Sales invoices are formal Accounts Receivable records. Draft invoices do not post. Issued invoices create a balanced journal entry that debits `1100` Accounts Receivable, credits the invoice line revenue accounts, and credits `2200` GST Output Tax when invoice line tax is present. Customer receipts post `Dr bank/cash, Cr Accounts Receivable` and must be allocated to issued invoices. Invoice status updates to partially paid or paid based on posted receipt allocations.
 
 ## CPF Handling
 
@@ -117,14 +133,15 @@ CPF can vary by age, citizenship or PR year, wage band, Ordinary Wage ceiling, A
 
 ## Frontend Views
 
-- Dashboard: summary cards, operational queue, chart of accounts, recent journal entries.
-- Transactions: income and expense capture.
-- Purchasing: purchase order entry, line items, qualified vendor issuance, cancellation.
-- Payroll: salary run capture, employee prefill, CPF preview, payroll posting, payslip printing.
-- Employees: employee master data and current salary/CPF profile.
-- Contacts: customer and vendor records.
-- Reports: Profit and Loss, Balance Sheet.
-- Settings: company settings.
+- Dashboard: read-only operating overview, summary cards, A/R ageing, operational queue, read-only chart of accounts, and recent journal entries.
+- Finance: income and expense capture, operational transaction posting, and receipt extraction.
+- Sales: customer master records, sales invoice creation/issue, customer receipt posting, client purchase order intake, line items, deposit terms/payment status, acceptance/cancellation, and client history.
+- Purchasing: vendor master records, vendor qualification, purchase order entry, line items, qualified vendor issuance, and cancellation.
+- HR & Payroll: employee master records, salary run capture, employee prefill, CPF preview, payroll posting, and payslip printing.
+- Reports: Profit and Loss and Balance Sheet.
+- Settings: company settings and chart-of-accounts setup.
+
+Chart-of-accounts setup is intentionally in Settings rather than Dashboard. The dashboard view should remain observation-first. Add-only and setup-replace CSV imports are guarded by confirmation, imports are validated before posting changes, and setup replacement is blocked after accounts are referenced by transactions, documents, payroll, contacts, or journal lines.
 
 ## Receipt Extraction
 
@@ -171,7 +188,9 @@ The payslip currently includes:
 - No migration framework; only a small local SQLite schema updater exists.
 - Employee records store current salary only; salary history is not implemented.
 - CPF calculation is simplified and editable.
-- No bank import, reconciliation, CPF export, invoices, bills, or formal financial statements.
+- No bank import, reconciliation, CPF export, supplier bills, or formal financial statements.
 - Receipt upload stores files locally but does not provide UI preview/download yet.
 - Receipt extraction does not yet support PDFs or user corrections.
 - Purchase orders do not yet support receiving, supplier invoice matching, approval routing, or PO document export.
+- Sales orders do not yet support fulfillment, deposit application, milestone automation, or document export.
+- Sales order deposits marked Paid post to Deferred Revenue, but there is not yet a workflow to apply deposits to invoices or release deferred revenue into earned revenue.

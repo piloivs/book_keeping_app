@@ -1,6 +1,6 @@
 export type AccountType = "asset" | "liability" | "equity" | "revenue" | "expense";
 export type ContactType = "customer" | "vendor" | "both";
-export type TransactionKind = "expense" | "income";
+export type TransactionKind = "expense" | "income" | "deposit";
 export type TransactionStatus = "draft" | "reviewed" | "posted";
 export type PayrollStatus = "draft" | "posted";
 export type EmployeeStatus = "active" | "inactive";
@@ -15,6 +15,18 @@ export type PurchaseOrderStatus =
   | "billed"
   | "closed"
   | "cancelled";
+export type SalesOrderStatus =
+  | "draft"
+  | "received"
+  | "accepted"
+  | "partially_invoiced"
+  | "fulfilled"
+  | "invoiced"
+  | "closed"
+  | "cancelled";
+export type DepositStatus = "not_requested" | "requested" | "invoiced" | "paid" | "applied";
+export type SalesInvoiceStatus = "draft" | "issued" | "partially_paid" | "paid" | "voided";
+export type CustomerReceiptStatus = "draft" | "posted" | "voided";
 
 export type Account = {
   id: number;
@@ -25,6 +37,30 @@ export type Account = {
   is_active: boolean;
   created_at: string;
   balance: string;
+};
+
+export type ChartOfAccountsImportMode = "setup_replace" | "add_only";
+
+export type ChartOfAccountsImportResult = {
+  mode: ChartOfAccountsImportMode;
+  created: number;
+  updated: number;
+  skipped: number;
+  errors: string[];
+};
+
+export type ChartOfAccountsValidationIssue = {
+  code: string;
+  message: string;
+};
+
+export type ChartOfAccountsValidationResult = {
+  mode: ChartOfAccountsImportMode;
+  can_import: boolean;
+  account_count: number;
+  errors: ChartOfAccountsValidationIssue[];
+  warnings: ChartOfAccountsValidationIssue[];
+  info: ChartOfAccountsValidationIssue[];
 };
 
 export type JournalLine = {
@@ -292,6 +328,163 @@ export type PurchaseOrderPayload = {
   }>;
 };
 
+export type SalesOrderLine = {
+  id: number;
+  description: string;
+  quantity: string;
+  unit_price: string;
+  tax_amount: string;
+  line_total: string;
+  revenue_account: Account;
+};
+
+export type SalesOrder = {
+  id: number;
+  order_number: string;
+  client_po_number: string;
+  status: SalesOrderStatus;
+  customer: Contact;
+  received_date: string;
+  expected_delivery_date: string | null;
+  currency: string;
+  payment_terms: string | null;
+  deposit_required: boolean;
+  deposit_rate: string;
+  deposit_amount: string;
+  deposit_due_date: string | null;
+  deposit_status: DepositStatus;
+  deposit_transaction_id: number | null;
+  notes: string | null;
+  delivery_instructions: string | null;
+  subtotal: string;
+  tax_total: string;
+  total: string;
+  invoiced_total: string;
+  paid_total: string;
+  unbilled_total: string;
+  lines: SalesOrderLine[];
+  accepted_at: string | null;
+  cancelled_at: string | null;
+  created_at: string;
+};
+
+export type SalesOrderPayload = {
+  order_number?: string;
+  client_po_number?: string;
+  status: SalesOrderStatus;
+  customer_id: number;
+  received_date: string;
+  expected_delivery_date?: string;
+  currency: string;
+  payment_terms?: string;
+  deposit_required: boolean;
+  deposit_rate: string;
+  deposit_amount?: string;
+  deposit_due_date?: string;
+  deposit_status: DepositStatus;
+  notes?: string;
+  delivery_instructions?: string;
+  lines: Array<{
+    description: string;
+    quantity: string;
+    unit_price: string;
+    tax_amount: string;
+    revenue_account_id: number;
+  }>;
+};
+
+export type SalesInvoiceLine = {
+  id: number;
+  description: string;
+  quantity: string;
+  unit_price: string;
+  tax_amount: string;
+  line_total: string;
+  revenue_account: Account;
+};
+
+export type SalesInvoice = {
+  id: number;
+  invoice_number: string;
+  status: SalesInvoiceStatus;
+  customer: Contact;
+  sales_order: SalesOrder | null;
+  issue_date: string;
+  due_date: string;
+  currency: string;
+  payment_terms: string | null;
+  notes: string | null;
+  subtotal: string;
+  tax_total: string;
+  total: string;
+  amount_paid: string;
+  amount_due: string;
+  journal_entry_id: number | null;
+  lines: SalesInvoiceLine[];
+  issued_at: string | null;
+  voided_at: string | null;
+  created_at: string;
+};
+
+export type SalesInvoicePayload = {
+  invoice_number?: string;
+  status: SalesInvoiceStatus;
+  customer_id: number;
+  sales_order_id?: number;
+  issue_date: string;
+  due_date: string;
+  currency: string;
+  payment_terms?: string;
+  notes?: string;
+  lines: Array<{
+    description: string;
+    quantity: string;
+    unit_price: string;
+    tax_amount: string;
+    revenue_account_id: number;
+  }>;
+};
+
+export type CustomerReceiptAllocation = {
+  id: number;
+  invoice: SalesInvoice;
+  amount: string;
+};
+
+export type CustomerReceipt = {
+  id: number;
+  receipt_number: string;
+  status: CustomerReceiptStatus;
+  customer: Contact;
+  receipt_date: string;
+  currency: string;
+  amount: string;
+  bank_account: Account;
+  reference: string | null;
+  notes: string | null;
+  journal_entry_id: number | null;
+  allocations: CustomerReceiptAllocation[];
+  posted_at: string | null;
+  voided_at: string | null;
+  created_at: string;
+};
+
+export type CustomerReceiptPayload = {
+  receipt_number?: string;
+  status: CustomerReceiptStatus;
+  customer_id: number;
+  receipt_date: string;
+  currency: string;
+  amount: string;
+  bank_account_id: number;
+  reference?: string;
+  notes?: string;
+  allocations: Array<{
+    invoice_id: number;
+    amount: string;
+  }>;
+};
+
 export type ProfitAndLoss = {
   revenue: string;
   expenses: string;
@@ -309,6 +502,47 @@ export type BalanceSheet = {
   asset_accounts: Account[];
   liability_accounts: Account[];
   equity_accounts: Account[];
+};
+
+export type AccountsReceivableAgeingRow = {
+  customer_id: number | null;
+  customer_name: string;
+  current: string;
+  days_31_60: string;
+  days_61_90: string;
+  days_over_90: string;
+  total: string;
+};
+
+export type AccountsReceivableAgeing = {
+  as_of: string;
+  current: string;
+  days_31_60: string;
+  days_61_90: string;
+  days_over_90: string;
+  total: string;
+  rows: AccountsReceivableAgeingRow[];
+};
+
+export type ClientHistoryEntry = {
+  customer: Contact;
+  ordered_total: string;
+  invoiced_total: string;
+  paid_total: string;
+  receivable_total: string;
+  unbilled_total: string;
+  sales_orders: SalesOrder[];
+  sales_invoices: SalesInvoice[];
+  customer_receipts: CustomerReceipt[];
+};
+
+export type ClientHistory = {
+  ordered_total: string;
+  invoiced_total: string;
+  paid_total: string;
+  receivable_total: string;
+  unbilled_total: string;
+  clients: ClientHistoryEntry[];
 };
 
 export type JournalEntryPayload = {
@@ -336,14 +570,56 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(typeof errorBody.detail === "string" ? errorBody.detail : "Request failed");
+    if (typeof errorBody.detail === "string") {
+      throw new Error(errorBody.detail);
+    }
+    if (Array.isArray(errorBody.detail)) {
+      throw new Error(errorBody.detail.join(" "));
+    }
+    throw new Error("Request failed");
   }
 
   return response.json() as Promise<T>;
 }
 
+async function requestText(path: string): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}${path}`);
+  if (!response.ok) {
+    throw new Error(response.statusText || "Request failed");
+  }
+  return response.text();
+}
+
+function downloadText(filename: string, text: string, contentType = "text/csv") {
+  const blob = new Blob([text], { type: contentType });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
 export const api = {
   accounts: () => request<Account[]>("/accounts"),
+  downloadAccountsTemplate: async () => {
+    const csv = await requestText("/accounts/template.csv");
+    downloadText("chart-of-accounts-template.csv", csv);
+  },
+  downloadAccountsExport: async () => {
+    const csv = await requestText("/accounts/export.csv");
+    downloadText("chart-of-accounts.csv", csv);
+  },
+  importAccounts: (mode: ChartOfAccountsImportMode, csvText: string) =>
+    request<ChartOfAccountsImportResult>("/accounts/import", {
+      method: "POST",
+      body: JSON.stringify({ mode, csv_text: csvText })
+    }),
+  validateAccounts: (mode: ChartOfAccountsImportMode, csvText: string) =>
+    request<ChartOfAccountsValidationResult>("/accounts/validate", {
+      method: "POST",
+      body: JSON.stringify({ mode, csv_text: csvText })
+    }),
   companySettings: () => request<CompanySettings>("/company-settings"),
   updateCompanySettings: (payload: Omit<CompanySettings, "id" | "updated_at">) =>
     request<CompanySettings>("/company-settings", {
@@ -400,8 +676,45 @@ export const api = {
     request<PurchaseOrder>(`/purchase-orders/${id}/cancel`, {
       method: "POST"
     }),
+  salesOrders: () => request<SalesOrder[]>("/sales-orders"),
+  createSalesOrder: (payload: SalesOrderPayload) =>
+    request<SalesOrder>("/sales-orders", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  acceptSalesOrder: (id: number) =>
+    request<SalesOrder>(`/sales-orders/${id}/accept`, {
+      method: "POST"
+    }),
+  cancelSalesOrder: (id: number) =>
+    request<SalesOrder>(`/sales-orders/${id}/cancel`, {
+      method: "POST"
+    }),
+  salesInvoices: () => request<SalesInvoice[]>("/sales-invoices"),
+  createSalesInvoice: (payload: SalesInvoicePayload) =>
+    request<SalesInvoice>("/sales-invoices", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  issueSalesInvoice: (id: number) =>
+    request<SalesInvoice>(`/sales-invoices/${id}/issue`, {
+      method: "POST"
+    }),
+  linkSalesInvoiceToOrder: (invoiceId: number, salesOrderId: number) =>
+    request<SalesInvoice>(`/sales-invoices/${invoiceId}/link-sales-order`, {
+      method: "POST",
+      body: JSON.stringify({ sales_order_id: salesOrderId })
+    }),
+  customerReceipts: () => request<CustomerReceipt[]>("/customer-receipts"),
+  createCustomerReceipt: (payload: CustomerReceiptPayload) =>
+    request<CustomerReceipt>("/customer-receipts", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   profitAndLoss: () => request<ProfitAndLoss>("/reports/profit-and-loss"),
   balanceSheet: () => request<BalanceSheet>("/reports/balance-sheet"),
+  clientHistory: () => request<ClientHistory>("/reports/client-history"),
+  accountsReceivableAgeing: () => request<AccountsReceivableAgeing>("/reports/accounts-receivable-ageing"),
   summary: () => request<Summary>("/summary"),
   journalEntries: () => request<JournalEntry[]>("/journal-entries"),
   createJournalEntry: (payload: JournalEntryPayload) =>

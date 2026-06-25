@@ -32,6 +32,7 @@ class VendorQualificationStatus(StrEnum):
 class TransactionKind(StrEnum):
     EXPENSE = "expense"
     INCOME = "income"
+    DEPOSIT = "deposit"
 
 
 class TransactionStatus(StrEnum):
@@ -53,6 +54,39 @@ class PurchaseOrderStatus(StrEnum):
     BILLED = "billed"
     CLOSED = "closed"
     CANCELLED = "cancelled"
+
+
+class SalesOrderStatus(StrEnum):
+    DRAFT = "draft"
+    RECEIVED = "received"
+    ACCEPTED = "accepted"
+    PARTIALLY_INVOICED = "partially_invoiced"
+    FULFILLED = "fulfilled"
+    INVOICED = "invoiced"
+    CLOSED = "closed"
+    CANCELLED = "cancelled"
+
+
+class DepositStatus(StrEnum):
+    NOT_REQUESTED = "not_requested"
+    REQUESTED = "requested"
+    INVOICED = "invoiced"
+    PAID = "paid"
+    APPLIED = "applied"
+
+
+class SalesInvoiceStatus(StrEnum):
+    DRAFT = "draft"
+    ISSUED = "issued"
+    PARTIALLY_PAID = "partially_paid"
+    PAID = "paid"
+    VOIDED = "voided"
+
+
+class CustomerReceiptStatus(StrEnum):
+    DRAFT = "draft"
+    POSTED = "posted"
+    VOIDED = "voided"
 
 
 class ReceiptExtractionStatus(StrEnum):
@@ -111,6 +145,9 @@ class Contact(Base):
     transactions: Mapped[list["OperationalTransaction"]] = relationship(back_populates="contact")
     default_expense_account: Mapped["Account | None"] = relationship(foreign_keys=[default_expense_account_id])
     purchase_orders: Mapped[list["PurchaseOrder"]] = relationship(back_populates="vendor")
+    sales_orders: Mapped[list["SalesOrder"]] = relationship(back_populates="customer")
+    sales_invoices: Mapped[list["SalesInvoice"]] = relationship(back_populates="customer")
+    customer_receipts: Mapped[list["CustomerReceipt"]] = relationship(back_populates="customer")
 
 
 class Receipt(Base):
@@ -231,6 +268,8 @@ class JournalEntry(Base):
     )
     operational_transaction: Mapped["OperationalTransaction | None"] = relationship(back_populates="journal_entry")
     payroll_run: Mapped["PayrollRun | None"] = relationship(back_populates="journal_entry")
+    sales_invoice: Mapped["SalesInvoice | None"] = relationship(back_populates="journal_entry")
+    customer_receipt: Mapped["CustomerReceipt | None"] = relationship(back_populates="journal_entry")
 
 
 class JournalLine(Base):
@@ -330,6 +369,228 @@ class PurchaseOrderLine(Base):
     @property
     def line_total(self) -> Decimal:
         return (self.quantity * self.unit_price + self.tax_amount).quantize(Decimal("0.01"))
+
+
+class SalesOrder(Base):
+    __tablename__ = "sales_orders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_number: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    client_po_number: Mapped[str] = mapped_column(String(80), index=True)
+    status: Mapped[SalesOrderStatus] = mapped_column(
+        Enum(SalesOrderStatus),
+        default=SalesOrderStatus.RECEIVED,
+        index=True,
+    )
+    customer_id: Mapped[int] = mapped_column(ForeignKey("contacts.id"), index=True)
+    received_date: Mapped[date] = mapped_column(Date, index=True)
+    expected_delivery_date: Mapped[date | None] = mapped_column(Date, default=None)
+    currency: Mapped[str] = mapped_column(String(3), default="SGD")
+    payment_terms: Mapped[str | None] = mapped_column(String(120), default=None)
+    deposit_required: Mapped[bool] = mapped_column(default=False)
+    deposit_rate: Mapped[Decimal] = mapped_column(Numeric(6, 4), default=Decimal("0.0000"))
+    deposit_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
+    deposit_due_date: Mapped[date | None] = mapped_column(Date, default=None)
+    deposit_status: Mapped[DepositStatus] = mapped_column(
+        Enum(DepositStatus),
+        default=DepositStatus.NOT_REQUESTED,
+        index=True,
+    )
+    deposit_transaction_id: Mapped[int | None] = mapped_column(ForeignKey("operational_transactions.id"), default=None, unique=True)
+    notes: Mapped[str | None] = mapped_column(Text, default=None)
+    delivery_instructions: Mapped[str | None] = mapped_column(Text, default=None)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    customer: Mapped[Contact] = relationship(back_populates="sales_orders")
+    deposit_transaction: Mapped[OperationalTransaction | None] = relationship(foreign_keys=[deposit_transaction_id])
+    invoices: Mapped[list["SalesInvoice"]] = relationship(back_populates="sales_order")
+    lines: Mapped[list["SalesOrderLine"]] = relationship(
+        back_populates="sales_order",
+        cascade="all, delete-orphan",
+        order_by="SalesOrderLine.id",
+    )
+
+    @property
+    def subtotal(self) -> Decimal:
+        return sum((line.quantity * line.unit_price for line in self.lines), Decimal("0.00")).quantize(Decimal("0.01"))
+
+    @property
+    def tax_total(self) -> Decimal:
+        return sum((line.tax_amount for line in self.lines), Decimal("0.00")).quantize(Decimal("0.01"))
+
+    @property
+    def total(self) -> Decimal:
+        return (self.subtotal + self.tax_total).quantize(Decimal("0.01"))
+
+    @property
+    def invoiced_total(self) -> Decimal:
+        return sum(
+            (
+                invoice.total
+                for invoice in self.invoices
+                if invoice.status not in {SalesInvoiceStatus.DRAFT, SalesInvoiceStatus.VOIDED}
+            ),
+            Decimal("0.00"),
+        ).quantize(Decimal("0.01"))
+
+    @property
+    def paid_total(self) -> Decimal:
+        return sum(
+            (
+                invoice.amount_paid
+                for invoice in self.invoices
+                if invoice.status not in {SalesInvoiceStatus.DRAFT, SalesInvoiceStatus.VOIDED}
+            ),
+            Decimal("0.00"),
+        ).quantize(Decimal("0.01"))
+
+    @property
+    def unbilled_total(self) -> Decimal:
+        return max(self.total - self.invoiced_total, Decimal("0.00")).quantize(Decimal("0.01"))
+
+
+class SalesOrderLine(Base):
+    __tablename__ = "sales_order_lines"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sales_order_id: Mapped[int] = mapped_column(ForeignKey("sales_orders.id"), index=True)
+    description: Mapped[str] = mapped_column(String(240))
+    quantity: Mapped[Decimal] = mapped_column(Numeric(12, 3))
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    tax_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
+    revenue_account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"))
+
+    sales_order: Mapped[SalesOrder] = relationship(back_populates="lines")
+    revenue_account: Mapped[Account] = relationship(foreign_keys=[revenue_account_id])
+
+    @property
+    def line_total(self) -> Decimal:
+        return (self.quantity * self.unit_price + self.tax_amount).quantize(Decimal("0.01"))
+
+
+class SalesInvoice(Base):
+    __tablename__ = "sales_invoices"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    invoice_number: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    status: Mapped[SalesInvoiceStatus] = mapped_column(
+        Enum(SalesInvoiceStatus),
+        default=SalesInvoiceStatus.DRAFT,
+        index=True,
+    )
+    customer_id: Mapped[int] = mapped_column(ForeignKey("contacts.id"), index=True)
+    sales_order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"), default=None, index=True)
+    issue_date: Mapped[date] = mapped_column(Date, index=True)
+    due_date: Mapped[date] = mapped_column(Date, index=True)
+    currency: Mapped[str] = mapped_column(String(3), default="SGD")
+    payment_terms: Mapped[str | None] = mapped_column(String(120), default=None)
+    notes: Mapped[str | None] = mapped_column(Text, default=None)
+    journal_entry_id: Mapped[int | None] = mapped_column(ForeignKey("journal_entries.id"), default=None, unique=True)
+    issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    customer: Mapped[Contact] = relationship(back_populates="sales_invoices")
+    sales_order: Mapped[SalesOrder | None] = relationship(back_populates="invoices")
+    journal_entry: Mapped[JournalEntry | None] = relationship(back_populates="sales_invoice")
+    lines: Mapped[list["SalesInvoiceLine"]] = relationship(
+        back_populates="invoice",
+        cascade="all, delete-orphan",
+        order_by="SalesInvoiceLine.id",
+    )
+    allocations: Mapped[list["CustomerReceiptAllocation"]] = relationship(back_populates="invoice")
+
+    @property
+    def subtotal(self) -> Decimal:
+        return sum((line.quantity * line.unit_price for line in self.lines), Decimal("0.00")).quantize(Decimal("0.01"))
+
+    @property
+    def tax_total(self) -> Decimal:
+        return sum((line.tax_amount for line in self.lines), Decimal("0.00")).quantize(Decimal("0.01"))
+
+    @property
+    def total(self) -> Decimal:
+        return (self.subtotal + self.tax_total).quantize(Decimal("0.01"))
+
+    @property
+    def amount_paid(self) -> Decimal:
+        return sum(
+            (
+                allocation.amount
+                for allocation in self.allocations
+                if allocation.receipt and allocation.receipt.status == CustomerReceiptStatus.POSTED
+            ),
+            Decimal("0.00"),
+        ).quantize(Decimal("0.01"))
+
+    @property
+    def amount_due(self) -> Decimal:
+        return max(self.total - self.amount_paid, Decimal("0.00")).quantize(Decimal("0.01"))
+
+
+class SalesInvoiceLine(Base):
+    __tablename__ = "sales_invoice_lines"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    invoice_id: Mapped[int] = mapped_column(ForeignKey("sales_invoices.id"), index=True)
+    description: Mapped[str] = mapped_column(String(240))
+    quantity: Mapped[Decimal] = mapped_column(Numeric(12, 3))
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    tax_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
+    revenue_account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"))
+
+    invoice: Mapped[SalesInvoice] = relationship(back_populates="lines")
+    revenue_account: Mapped[Account] = relationship(foreign_keys=[revenue_account_id])
+
+    @property
+    def line_total(self) -> Decimal:
+        return (self.quantity * self.unit_price + self.tax_amount).quantize(Decimal("0.01"))
+
+
+class CustomerReceipt(Base):
+    __tablename__ = "customer_receipts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    receipt_number: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    status: Mapped[CustomerReceiptStatus] = mapped_column(
+        Enum(CustomerReceiptStatus),
+        default=CustomerReceiptStatus.POSTED,
+        index=True,
+    )
+    customer_id: Mapped[int] = mapped_column(ForeignKey("contacts.id"), index=True)
+    receipt_date: Mapped[date] = mapped_column(Date, index=True)
+    currency: Mapped[str] = mapped_column(String(3), default="SGD")
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    bank_account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"))
+    reference: Mapped[str | None] = mapped_column(String(80), default=None, index=True)
+    notes: Mapped[str | None] = mapped_column(Text, default=None)
+    journal_entry_id: Mapped[int | None] = mapped_column(ForeignKey("journal_entries.id"), default=None, unique=True)
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    customer: Mapped[Contact] = relationship(back_populates="customer_receipts")
+    bank_account: Mapped[Account] = relationship(foreign_keys=[bank_account_id])
+    journal_entry: Mapped[JournalEntry | None] = relationship(back_populates="customer_receipt")
+    allocations: Mapped[list["CustomerReceiptAllocation"]] = relationship(
+        back_populates="receipt",
+        cascade="all, delete-orphan",
+        order_by="CustomerReceiptAllocation.id",
+    )
+
+
+class CustomerReceiptAllocation(Base):
+    __tablename__ = "customer_receipt_allocations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    receipt_id: Mapped[int] = mapped_column(ForeignKey("customer_receipts.id"), index=True)
+    invoice_id: Mapped[int] = mapped_column(ForeignKey("sales_invoices.id"), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+
+    receipt: Mapped[CustomerReceipt] = relationship(back_populates="allocations")
+    invoice: Mapped[SalesInvoice] = relationship(back_populates="allocations")
 
 
 class PayrollRun(Base):

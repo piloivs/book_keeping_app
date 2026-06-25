@@ -6,11 +6,11 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from bookkeeping_app.accounting import seed_default_accounts
+from bookkeeping_app.accounting import create_journal_entry, seed_default_accounts
 from bookkeeping_app.database import Base
 from bookkeeping_app.models import Account, JournalEntry, ReceiptExtractionStatus, TransactionKind, TransactionStatus
-from bookkeeping_app.operations import create_operational_transaction, extract_receipt_details
-from bookkeeping_app.schemas import OperationalTransactionCreate, ReceiptPayload
+from bookkeeping_app.operations import accounts_receivable_ageing, create_contact, create_operational_transaction, extract_receipt_details
+from bookkeeping_app.schemas import ContactCreate, JournalEntryCreate, OperationalTransactionCreate, ReceiptPayload
 
 
 @pytest.fixture()
@@ -222,6 +222,64 @@ def test_tesseract_ollama_extraction_stores_structured_result(db_session, monkey
     assert extraction.total == Decimal("21.80")
     assert extraction.raw_text.startswith("Stationery Shop")
     assert extraction.line_items[0].description == "Notebook"
+
+
+def test_accounts_receivable_ageing_uses_posted_ledger_lines_and_applies_oldest_credits(db_session) -> None:
+    customer = create_contact(db_session, ContactCreate(name="Acme Projects", type="customer"))
+    create_operational_transaction(
+        db_session,
+        OperationalTransactionCreate(
+            kind=TransactionKind.INCOME,
+            status=TransactionStatus.POSTED,
+            transaction_date=date(2026, 2, 1),
+            description="February project billing",
+            amount=Decimal("1000.00"),
+            contact_id=customer.id,
+            debit_account_id=account_id(db_session, "1100"),
+            credit_account_id=account_id(db_session, "4100"),
+        ),
+    )
+    create_operational_transaction(
+        db_session,
+        OperationalTransactionCreate(
+            kind=TransactionKind.INCOME,
+            status=TransactionStatus.POSTED,
+            transaction_date=date(2026, 5, 20),
+            description="May project billing",
+            amount=Decimal("500.00"),
+            contact_id=customer.id,
+            debit_account_id=account_id(db_session, "1100"),
+            credit_account_id=account_id(db_session, "4100"),
+        ),
+    )
+    create_journal_entry(
+        db_session,
+        JournalEntryCreate(
+            entry_date=date(2026, 6, 1),
+            memo="Customer payment",
+            lines=[
+                {
+                    "account_id": account_id(db_session, "1010"),
+                    "debit": Decimal("300.00"),
+                    "description": "Partial customer payment",
+                },
+                {
+                    "account_id": account_id(db_session, "1100"),
+                    "credit": Decimal("300.00"),
+                    "description": "Partial customer payment",
+                },
+            ],
+        ),
+    )
+
+    report = accounts_receivable_ageing(db_session, as_of=date(2026, 6, 21))
+
+    assert report.total == Decimal("1200.00")
+    assert report.days_31_60 == Decimal("500.00")
+    assert report.days_over_90 == Decimal("700.00")
+    assert len(report.rows) == 1
+    assert report.rows[0].customer_name == "Acme Projects"
+    assert report.rows[0].total == Decimal("1200.00")
 
 
 def test_expense_requires_expense_debit_account(db_session) -> None:

@@ -5,6 +5,7 @@ import {
   BookOpenCheck,
   Building2,
   CircleDollarSign,
+  Download,
   ClipboardList,
   FileText,
   Landmark,
@@ -12,15 +13,24 @@ import {
   Printer,
   RefreshCw,
   Settings,
+  Upload,
   Users
 } from "lucide-react";
 import {
   Account,
+  AccountsReceivableAgeing,
   BalanceSheet,
+  ChartOfAccountsImportMode,
+  ChartOfAccountsValidationResult,
+  ClientHistory,
+  ClientHistoryEntry,
   CompanySettings,
   Contact,
   ContactPayload,
   CpfProfile,
+  CustomerReceipt,
+  CustomerReceiptPayload,
+  DepositStatus,
   Employee,
   EmployeePayload,
   EmployeeStatus,
@@ -34,6 +44,12 @@ import {
   PurchaseOrder,
   PurchaseOrderPayload,
   PurchaseOrderStatus,
+  SalesOrder,
+  SalesOrderPayload,
+  SalesOrderStatus,
+  SalesInvoice,
+  SalesInvoicePayload,
+  SalesInvoiceStatus,
   Summary,
   TransactionKind,
   TransactionStatus,
@@ -47,7 +63,7 @@ const money = new Intl.NumberFormat("en-SG", {
   currency: "SGD"
 });
 
-type View = "dashboard" | "transactions" | "purchasing" | "payroll" | "employees" | "contacts" | "reports" | "settings";
+type View = "dashboard" | "finance" | "sales" | "purchasing" | "hrPayroll" | "reports" | "settings";
 
 function formatMoney(value: string | number) {
   return money.format(Number(value));
@@ -57,6 +73,14 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function compactDate(value: string) {
+  return value.replace(/-/g, "");
+}
+
+function displayClientPo(value: string) {
+  return value.startsWith("NO-PO-") ? "No client PO" : value;
+}
+
 function App() {
   const [view, setView] = useState<View>("dashboard");
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -64,9 +88,14 @@ function App() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [transactions, setTransactions] = useState<OperationalTransaction[]>([]);
+  const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
+  const [salesInvoices, setSalesInvoices] = useState<SalesInvoice[]>([]);
+  const [customerReceipts, setCustomerReceipts] = useState<CustomerReceipt[]>([]);
+  const [clientHistory, setClientHistory] = useState<ClientHistory | null>(null);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [payrollRuns, setPayrollRuns] = useState<PayrollRun[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [arAgeing, setArAgeing] = useState<AccountsReceivableAgeing | null>(null);
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [profitAndLoss, setProfitAndLoss] = useState<ProfitAndLoss | null>(null);
   const [balanceSheet, setBalanceSheet] = useState<BalanceSheet | null>(null);
@@ -77,16 +106,21 @@ function App() {
     setLoading(true);
     setError(null);
     try {
-      const [accountData, settingsData, contactData, employeeData, transactionData, purchaseOrderData, payrollData, summaryData, entryData, pnlData, bsData] =
+      const [accountData, settingsData, contactData, employeeData, transactionData, salesOrderData, salesInvoiceData, customerReceiptData, clientHistoryData, purchaseOrderData, payrollData, summaryData, arAgeingData, entryData, pnlData, bsData] =
         await Promise.all([
           api.accounts(),
           api.companySettings(),
           api.contacts(),
           api.employees(),
           api.transactions(),
+          api.salesOrders(),
+          api.salesInvoices(),
+          api.customerReceipts(),
+          api.clientHistory(),
           api.purchaseOrders(),
           api.payroll(),
           api.summary(),
+          api.accountsReceivableAgeing(),
           api.journalEntries(),
           api.profitAndLoss(),
           api.balanceSheet()
@@ -96,9 +130,14 @@ function App() {
       setContacts(contactData);
       setEmployees(employeeData);
       setTransactions(transactionData);
+      setSalesOrders(salesOrderData);
+      setSalesInvoices(salesInvoiceData);
+      setCustomerReceipts(customerReceiptData);
+      setClientHistory(clientHistoryData);
       setPurchaseOrders(purchaseOrderData);
       setPayrollRuns(payrollData);
       setSummary(summaryData);
+      setArAgeing(arAgeingData);
       setEntries(entryData);
       setProfitAndLoss(pnlData);
       setBalanceSheet(bsData);
@@ -118,7 +157,7 @@ function App() {
       <header className="topbar">
         <div>
           <p className="eyebrow">{settings?.company_name ?? "IntelliArtAI"}</p>
-          <h1>Bookkeeping</h1>
+          <h1>Operations Core</h1>
         </div>
         <button className="iconButton" onClick={() => void loadData()} title="Refresh data" aria-label="Refresh data">
           <RefreshCw size={18} />
@@ -127,11 +166,10 @@ function App() {
 
       <nav className="tabs" aria-label="Primary views">
         <TabButton active={view === "dashboard"} icon={<CircleDollarSign size={16} />} label="Dashboard" onClick={() => setView("dashboard")} />
-        <TabButton active={view === "transactions"} icon={<FileText size={16} />} label="Transactions" onClick={() => setView("transactions")} />
+        <TabButton active={view === "finance"} icon={<Landmark size={16} />} label="Finance" onClick={() => setView("finance")} />
+        <TabButton active={view === "sales"} icon={<ArrowDownUp size={16} />} label="Sales" onClick={() => setView("sales")} />
         <TabButton active={view === "purchasing"} icon={<ClipboardList size={16} />} label="Purchasing" onClick={() => setView("purchasing")} />
-        <TabButton active={view === "payroll"} icon={<Landmark size={16} />} label="Payroll" onClick={() => setView("payroll")} />
-        <TabButton active={view === "employees"} icon={<Users size={16} />} label="Employees" onClick={() => setView("employees")} />
-        <TabButton active={view === "contacts"} icon={<Users size={16} />} label="Contacts" onClick={() => setView("contacts")} />
+        <TabButton active={view === "hrPayroll"} icon={<Users size={16} />} label="HR & Payroll" onClick={() => setView("hrPayroll")} />
         <TabButton active={view === "reports"} icon={<BookOpenCheck size={16} />} label="Reports" onClick={() => setView("reports")} />
         <TabButton active={view === "settings"} icon={<Settings size={16} />} label="Settings" onClick={() => setView("settings")} />
       </nav>
@@ -141,19 +179,31 @@ function App() {
       {view === "dashboard" ? (
         <DashboardView
           accounts={accounts}
+          arAgeing={arAgeing}
           entries={entries}
           loading={loading}
           summary={summary}
           transactions={transactions}
-          onRefresh={() => void loadData()}
         />
       ) : null}
-      {view === "transactions" ? (
-        <TransactionsView
+      {view === "finance" ? (
+        <FinanceView
           accounts={accounts}
           contacts={contacts}
           loading={loading}
           transactions={transactions}
+          onChanged={() => void loadData()}
+        />
+      ) : null}
+      {view === "sales" ? (
+        <SalesView
+          accounts={accounts}
+          contacts={contacts}
+          customerReceipts={customerReceipts}
+          clientHistory={clientHistory}
+          loading={loading}
+          salesInvoices={salesInvoices}
+          salesOrders={salesOrders}
           onChanged={() => void loadData()}
         />
       ) : null}
@@ -166,8 +216,8 @@ function App() {
           onChanged={() => void loadData()}
         />
       ) : null}
-      {view === "payroll" ? (
-        <PayrollView
+      {view === "hrPayroll" ? (
+        <HrPayrollView
           accounts={accounts}
           employees={employees}
           loading={loading}
@@ -176,12 +226,10 @@ function App() {
           onChanged={() => void loadData()}
         />
       ) : null}
-      {view === "employees" ? <EmployeesView employees={employees} loading={loading} onChanged={() => void loadData()} /> : null}
-      {view === "contacts" ? <ContactsView accounts={accounts} contacts={contacts} loading={loading} onChanged={() => void loadData()} /> : null}
       {view === "reports" ? (
         <ReportsView balanceSheet={balanceSheet} loading={loading} profitAndLoss={profitAndLoss} />
       ) : null}
-      {view === "settings" && settings ? <SettingsView settings={settings} onChanged={() => void loadData()} /> : null}
+      {view === "settings" && settings ? <SettingsView accounts={accounts} loading={loading} settings={settings} onChanged={() => void loadData()} /> : null}
     </main>
   );
 }
@@ -197,17 +245,18 @@ function TabButton({ active, icon, label, onClick }: { active: boolean; icon: Re
 
 function DashboardView({
   accounts,
+  arAgeing,
   entries,
   loading,
   summary,
   transactions
 }: {
   accounts: Account[];
+  arAgeing: AccountsReceivableAgeing | null;
   entries: JournalEntry[];
   loading: boolean;
   summary: Summary | null;
   transactions: OperationalTransaction[];
-  onRefresh: () => void;
 }) {
   return (
     <>
@@ -217,6 +266,8 @@ function DashboardView({
         <Metric icon={<Landmark size={20} />} label="Payables" value={summary?.payables ?? "0"} />
         <Metric icon={<BookOpenCheck size={20} />} label="Net income" value={summary?.net_income ?? "0"} />
       </section>
+
+      <AccountsReceivableAgeingPanel ageing={arAgeing} loading={loading} />
 
       <div className="workspace">
         <section className="panel">
@@ -231,7 +282,13 @@ function DashboardView({
             <h2>Chart of Accounts</h2>
             <span>{accounts.length} accounts</span>
           </div>
-          <AccountsTable accounts={accounts} loading={loading} />
+          <div className="printArea">
+            <div className="printHeader">
+              <h2>Chart of Accounts</h2>
+              <span>Generated {today()}</span>
+            </div>
+            <AccountsTable accounts={accounts} loading={loading} />
+          </div>
         </section>
       </div>
 
@@ -243,6 +300,212 @@ function DashboardView({
         <EntryList entries={entries} loading={loading} />
       </section>
     </>
+  );
+}
+
+function ChartOfAccountsTools({ onChanged }: { onChanged: () => void }) {
+  const [mode, setMode] = useState<ChartOfAccountsImportMode>("add_only");
+  const [message, setMessage] = useState<string | null>(null);
+  const [validation, setValidation] = useState<ChartOfAccountsValidationResult | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  function selectImportMode(nextMode: ChartOfAccountsImportMode) {
+    if (nextMode === mode) return;
+
+    const confirmed = window.confirm(
+      nextMode === "setup_replace"
+        ? "Setup Replace is intended only for initial company setup. It can replace the full chart of accounts from an imported CSV and is blocked after accounts are used by transactions, documents, payroll, contacts, or journal lines.\n\nContinue with Setup Replace mode?"
+        : "Add Only keeps existing account codes unchanged and only adds new accounts from an imported CSV. Existing matching account codes will be skipped.\n\nContinue with Add Only mode?"
+    );
+    if (!confirmed) return;
+
+    setMode(nextMode);
+    setMessage(null);
+    setValidation(null);
+  }
+
+  async function downloadTemplate() {
+    setBusy(true);
+    setMessage(null);
+    setValidation(null);
+    try {
+      await api.downloadAccountsTemplate();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Unable to download template.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function downloadExport() {
+    setBusy(true);
+    setMessage(null);
+    setValidation(null);
+    try {
+      await api.downloadAccountsExport();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Unable to export chart of accounts.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function importFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    setBusy(true);
+    setMessage(null);
+    setValidation(null);
+    try {
+      const csvText = await file.text();
+      const validationResult = await api.validateAccounts(mode, csvText);
+      setValidation(validationResult);
+      if (!validationResult.can_import) {
+        setMessage("Import blocked by validation errors.");
+        return;
+      }
+
+      if (validationResult.warnings.length) {
+        const warningText = validationResult.warnings.map((warning) => warning.message).join("\n");
+        const confirmed = window.confirm(`Validation found ${validationResult.warnings.length} warning${validationResult.warnings.length === 1 ? "" : "s"}:\n\n${warningText}\n\nContinue importing?`);
+        if (!confirmed) {
+          setMessage("Import cancelled after validation.");
+          return;
+        }
+      }
+
+      const result = await api.importAccounts(mode, csvText);
+      setMessage(`Validation passed. Imported ${result.created} new account${result.created === 1 ? "" : "s"}; skipped ${result.skipped}.`);
+      onChanged();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Unable to import chart of accounts.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="coaTools noPrint">
+      <div className="segmented" aria-label="Chart of accounts import mode">
+        <button className={mode === "add_only" ? "active" : ""} onClick={() => selectImportMode("add_only")} type="button">
+          Add Only
+        </button>
+        <button className={mode === "setup_replace" ? "active" : ""} onClick={() => selectImportMode("setup_replace")} type="button">
+          Setup Replace
+        </button>
+      </div>
+      <div className="rowActions">
+        <button className="smallButton" disabled={busy} onClick={downloadTemplate} type="button">
+          <Download size={15} />
+          Template
+        </button>
+        <button className="smallButton" disabled={busy} onClick={downloadExport} type="button">
+          <Download size={15} />
+          Export
+        </button>
+        <label className={busy ? "smallButton disabled" : "smallButton"}>
+          <Upload size={15} />
+          Import
+          <input accept=".csv,text/csv" hidden onChange={importFile} type="file" />
+        </label>
+        <button className="smallButton" onClick={() => window.print()} type="button">
+          <Printer size={15} />
+          Print
+        </button>
+      </div>
+      {message ? <p className="formMessage">{message}</p> : null}
+      {validation ? <ChartOfAccountsValidationSummary validation={validation} /> : null}
+    </div>
+  );
+}
+
+function ChartOfAccountsValidationSummary({ validation }: { validation: ChartOfAccountsValidationResult }) {
+  return (
+    <div className="validationSummary">
+      <div>
+        <strong>{validation.can_import ? "Ready to import" : "Import blocked"}</strong>
+        <span>{validation.account_count} account rows checked</span>
+      </div>
+      {validation.errors.length ? <ValidationIssueList title="Errors" items={validation.errors.map((issue) => issue.message)} /> : null}
+      {validation.warnings.length ? <ValidationIssueList title="Warnings" items={validation.warnings.map((issue) => issue.message)} /> : null}
+      {validation.info.length ? <ValidationIssueList title="Notes" items={validation.info.map((issue) => issue.message)} /> : null}
+    </div>
+  );
+}
+
+function ValidationIssueList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="validationGroup">
+      <span>{title}</span>
+      <ul>
+        {items.slice(0, 4).map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+        {items.length > 4 ? <li>{items.length - 4} more...</li> : null}
+      </ul>
+    </div>
+  );
+}
+
+function AccountsReceivableAgeingPanel({ ageing, loading }: { ageing: AccountsReceivableAgeing | null; loading: boolean }) {
+  if (loading) return <section className="panel empty">Loading A/R ageing...</section>;
+  const buckets = [
+    { label: "0-30", value: ageing?.current ?? "0" },
+    { label: "31-60", value: ageing?.days_31_60 ?? "0" },
+    { label: "61-90", value: ageing?.days_61_90 ?? "0" },
+    { label: "90+", value: ageing?.days_over_90 ?? "0" }
+  ];
+  return (
+    <section className="panel arAgeingPanel">
+      <div className="panelHeader">
+        <h2>A/R Ageing</h2>
+        <span>As of {ageing?.as_of ?? today()}</span>
+      </div>
+      <div className="ageingSummary" aria-label="Accounts receivable ageing buckets">
+        {buckets.map((bucket) => (
+          <div className="ageingBucket" key={bucket.label}>
+            <span>{bucket.label}</span>
+            <strong>{formatMoney(bucket.value)}</strong>
+          </div>
+        ))}
+        <div className="ageingBucket total">
+          <span>Total</span>
+          <strong>{formatMoney(ageing?.total ?? "0")}</strong>
+        </div>
+      </div>
+      {ageing?.rows.length ? (
+        <div className="tableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Customer</th>
+                <th className="number">0-30</th>
+                <th className="number">31-60</th>
+                <th className="number">61-90</th>
+                <th className="number">90+</th>
+                <th className="number">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ageing.rows.map((row) => (
+                <tr key={`${row.customer_id ?? "unassigned"}-${row.customer_name}`}>
+                  <td>{row.customer_name}</td>
+                  <td className="number">{formatMoney(row.current)}</td>
+                  <td className="number">{formatMoney(row.days_31_60)}</td>
+                  <td className="number">{formatMoney(row.days_61_90)}</td>
+                  <td className="number">{formatMoney(row.days_over_90)}</td>
+                  <td className="number">{formatMoney(row.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="empty">No open receivables yet.</div>
+      )}
+    </section>
   );
 }
 
@@ -258,7 +521,7 @@ function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; 
   );
 }
 
-function TransactionsView({
+function FinanceView({
   accounts,
   contacts,
   loading,
@@ -455,6 +718,1090 @@ type PurchaseOrderDraftLine = {
   expense_account_id: number | "";
 };
 
+type SalesOrderDraftLine = {
+  description: string;
+  quantity: string;
+  unit_price: string;
+  tax_amount: string;
+  revenue_account_id: number | "";
+};
+
+function SalesView({
+  accounts,
+  contacts,
+  customerReceipts,
+  clientHistory,
+  loading,
+  salesInvoices,
+  salesOrders,
+  onChanged
+}: {
+  accounts: Account[];
+  contacts: Contact[];
+  customerReceipts: CustomerReceipt[];
+  clientHistory: ClientHistory | null;
+  loading: boolean;
+  salesInvoices: SalesInvoice[];
+  salesOrders: SalesOrder[];
+  onChanged: () => void;
+}) {
+  const customerContacts = contacts.filter((contact) => contact.type === "customer" || contact.type === "both");
+
+  return (
+    <>
+      <div className="workspace">
+        <ContactForm accounts={accounts} fixedType="customer" title="New Customer" subtitle="Sales master record" onCreated={onChanged} />
+        <section className="panel">
+          <div className="panelHeader">
+            <h2>Customer Master</h2>
+            <span>{customerContacts.length} customers</span>
+          </div>
+          {loading ? <div className="empty">Loading customers...</div> : <ContactList contacts={customerContacts} />}
+        </section>
+      </div>
+      <div className="workspace">
+        <SalesInvoiceForm accounts={accounts} contacts={contacts} salesOrders={salesOrders} onCreated={onChanged} />
+        <section className="panel">
+          <div className="panelHeader">
+            <h2>Sales Invoices</h2>
+            <span>{salesInvoices.length} records</span>
+          </div>
+          <SalesInvoiceList loading={loading} salesInvoices={salesInvoices} salesOrders={salesOrders} onChanged={onChanged} />
+        </section>
+      </div>
+      <div className="workspace">
+        <CustomerReceiptForm accounts={accounts} contacts={contacts} salesInvoices={salesInvoices} onCreated={onChanged} />
+        <section className="panel">
+          <div className="panelHeader">
+            <h2>Customer Receipts</h2>
+            <span>{customerReceipts.length} records</span>
+          </div>
+          <CustomerReceiptList customerReceipts={customerReceipts} loading={loading} />
+        </section>
+      </div>
+      <div className="workspace">
+        <SalesOrderForm accounts={accounts} contacts={contacts} onCreated={onChanged} />
+        <section className="panel">
+          <div className="panelHeader">
+            <h2>Client Purchase Orders</h2>
+            <span>{salesOrders.length} records</span>
+          </div>
+          <SalesOrderList loading={loading} salesOrders={salesOrders} onChanged={onChanged} />
+        </section>
+      </div>
+      <ClientHistoryView clientHistory={clientHistory} loading={loading} />
+    </>
+  );
+}
+
+function ClientHistoryView({ clientHistory, loading }: { clientHistory: ClientHistory | null; loading: boolean }) {
+  const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
+  const clients = clientHistory?.clients ?? [];
+  const selectedClient = clients.find((entry) => entry.customer.id === selectedClientId) ?? clients[0] ?? null;
+
+  useEffect(() => {
+    if (!clients.length) {
+      setSelectedClientId(null);
+      return;
+    }
+    if (!selectedClientId || !clients.some((entry) => entry.customer.id === selectedClientId)) {
+      setSelectedClientId(clients[0].customer.id);
+    }
+  }, [clients, selectedClientId]);
+
+  if (loading) return <section className="panel"><div className="empty">Loading client history...</div></section>;
+  if (!clientHistory || !clients.length) return <section className="panel"><div className="empty">No client order or payment history yet.</div></section>;
+
+  return (
+    <>
+      <div className="metrics">
+        <Metric label="Ordered" value={selectedClient?.ordered_total ?? "0"} icon={<ClipboardList size={20} />} />
+        <Metric label="Invoiced" value={selectedClient?.invoiced_total ?? "0"} icon={<FileText size={20} />} />
+        <Metric label="Paid" value={selectedClient?.paid_total ?? "0"} icon={<CircleDollarSign size={20} />} />
+        <Metric label="Unbilled" value={selectedClient?.unbilled_total ?? "0"} icon={<BookOpenCheck size={20} />} />
+      </div>
+      <div className="clientHistoryLayout">
+        <section className="panel">
+          <div className="panelHeader">
+            <h2>Clients</h2>
+            <span>{clients.length} records</span>
+          </div>
+          <div className="clientSelector">
+            {clients.map((entry) => (
+              <button
+                className={selectedClient?.customer.id === entry.customer.id ? "clientOption active" : "clientOption"}
+                key={entry.customer.id}
+                onClick={() => setSelectedClientId(entry.customer.id)}
+                type="button"
+              >
+                <strong>{entry.customer.name}</strong>
+                <span>A/R {formatMoney(entry.receivable_total)} - Unbilled {formatMoney(entry.unbilled_total)}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+        {selectedClient ? <ClientHistoryDetail entry={selectedClient} /> : null}
+      </div>
+    </>
+  );
+}
+
+function ClientHistoryDetail({ entry }: { entry: ClientHistoryEntry }) {
+  return (
+    <section className="panel">
+      <div className="panelHeader">
+        <h2>{entry.customer.name}</h2>
+        <span>{entry.customer.payment_terms ?? "No terms"}</span>
+      </div>
+      <div className="ageingSummary clientTotals">
+        <div className="ageingBucket">
+          <span>Ordered</span>
+          <strong>{formatMoney(entry.ordered_total)}</strong>
+        </div>
+        <div className="ageingBucket">
+          <span>Invoiced</span>
+          <strong>{formatMoney(entry.invoiced_total)}</strong>
+        </div>
+        <div className="ageingBucket">
+          <span>Paid</span>
+          <strong>{formatMoney(entry.paid_total)}</strong>
+        </div>
+        <div className="ageingBucket">
+          <span>A/R</span>
+          <strong>{formatMoney(entry.receivable_total)}</strong>
+        </div>
+        <div className="ageingBucket total">
+          <span>Unbilled</span>
+          <strong>{formatMoney(entry.unbilled_total)}</strong>
+        </div>
+      </div>
+      <div className="historySections">
+        <HistoryGroup title="Sales Bookings" count={entry.sales_orders.length}>
+          {entry.sales_orders.length ? (
+            entry.sales_orders.map((order) => (
+              <article className="entry" key={order.id}>
+                <div className="entryHeader">
+                  <div>
+                    <strong>{order.order_number}</strong>
+                    <span>{displayClientPo(order.client_po_number)} - {order.received_date} - {order.status}</span>
+                  </div>
+                  <span>{formatMoney(order.total)}</span>
+                </div>
+                <div className="transactionMeta clientHistoryMeta">
+                  <span>Invoiced {formatMoney(order.invoiced_total)}</span>
+                  <span>Paid {formatMoney(order.paid_total)}</span>
+                  <span>Unbilled {formatMoney(order.unbilled_total)}</span>
+                  <span>{order.expected_delivery_date ?? "No delivery date"}</span>
+                </div>
+              </article>
+            ))
+          ) : (
+            <div className="empty">No sales bookings.</div>
+          )}
+        </HistoryGroup>
+        <HistoryGroup title="Invoices" count={entry.sales_invoices.length}>
+          {entry.sales_invoices.length ? (
+            entry.sales_invoices.map((invoice) => (
+              <article className="entry" key={invoice.id}>
+                <div className="entryHeader">
+                  <div>
+                    <strong>{invoice.invoice_number}</strong>
+                    <span>Due {invoice.due_date} - {invoice.status}</span>
+                  </div>
+                  <span>{formatMoney(invoice.amount_due)}</span>
+                </div>
+                <div className="transactionMeta clientHistoryMeta">
+                  <span>Total {formatMoney(invoice.total)}</span>
+                  <span>Paid {formatMoney(invoice.amount_paid)}</span>
+                  <span>{invoice.sales_order?.order_number ?? "No linked booking"}</span>
+                  <span>{invoice.journal_entry_id ? `Journal #${invoice.journal_entry_id}` : "No journal"}</span>
+                </div>
+              </article>
+            ))
+          ) : (
+            <div className="empty">No invoices.</div>
+          )}
+        </HistoryGroup>
+        <HistoryGroup title="Receipts" count={entry.customer_receipts.length}>
+          {entry.customer_receipts.length ? (
+            entry.customer_receipts.map((receipt) => (
+              <article className="entry" key={receipt.id}>
+                <div className="entryHeader">
+                  <div>
+                    <strong>{receipt.receipt_number}</strong>
+                    <span>{receipt.receipt_date} - {receipt.status}</span>
+                  </div>
+                  <span>{formatMoney(receipt.amount)}</span>
+                </div>
+                <div className="transactionMeta clientHistoryMeta">
+                  <span>{receipt.bank_account.code} {receipt.bank_account.name}</span>
+                  <span>{receipt.reference ?? "No reference"}</span>
+                  <span>{receipt.allocations.map((allocation) => allocation.invoice.invoice_number).join(", ")}</span>
+                  <span>{receipt.journal_entry_id ? `Journal #${receipt.journal_entry_id}` : "No journal"}</span>
+                </div>
+              </article>
+            ))
+          ) : (
+            <div className="empty">No receipts.</div>
+          )}
+        </HistoryGroup>
+      </div>
+    </section>
+  );
+}
+
+function HistoryGroup({ children, count, title }: { children: React.ReactNode; count: number; title: string }) {
+  return (
+    <div className="historyGroup">
+      <div className="panelHeader">
+        <h2>{title}</h2>
+        <span>{count} records</span>
+      </div>
+      <div className="entryList">{children}</div>
+    </div>
+  );
+}
+
+function SalesInvoiceForm({
+  accounts,
+  contacts,
+  salesOrders,
+  onCreated
+}: {
+  accounts: Account[];
+  contacts: Contact[];
+  salesOrders: SalesOrder[];
+  onCreated: () => void;
+}) {
+  const revenueAccounts = accounts.filter((account) => account.type === "revenue");
+  const customerContacts = contacts.filter((contact) => contact.type === "customer" || contact.type === "both");
+  const firstRevenueId = revenueAccounts[0]?.id ?? "";
+  const [status, setStatus] = useState<SalesInvoiceStatus>("issued");
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [customerId, setCustomerId] = useState<number | "">("");
+  const [salesOrderId, setSalesOrderId] = useState<number | "">("");
+  const [issueDate, setIssueDate] = useState(today());
+  const [dueDate, setDueDate] = useState(today());
+  const [currency, setCurrency] = useState("SGD");
+  const [paymentTerms, setPaymentTerms] = useState("");
+  const [notes, setNotes] = useState("");
+  const [lines, setLines] = useState<SalesOrderDraftLine[]>([
+    { description: "Client service", quantity: "1", unit_price: "1000.00", tax_amount: "0.00", revenue_account_id: firstRevenueId }
+  ]);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const selectedCustomer = customerContacts.find((contact) => contact.id === customerId);
+  const customerSalesOrders = salesOrders.filter(
+    (order) => order.customer.id === customerId && !["closed", "cancelled"].includes(order.status) && Number(order.unbilled_total) > 0
+  );
+  const total = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unit_price || 0) + Number(line.tax_amount || 0), 0);
+  const canSave =
+    Boolean(customerId && issueDate && dueDate && currency.length === 3 && lines.length) &&
+    new Date(dueDate) >= new Date(issueDate) &&
+    lines.every((line) => line.description && Number(line.quantity) > 0 && Number(line.unit_price) >= 0 && Number(line.tax_amount) >= 0 && line.revenue_account_id);
+
+  useEffect(() => {
+    if (!firstRevenueId || !lines.length || lines.some((line) => line.revenue_account_id !== "")) return;
+    setLines((current) => current.map((line) => ({ ...line, revenue_account_id: firstRevenueId })));
+  }, [firstRevenueId, lines]);
+
+  useEffect(() => {
+    if (selectedCustomer?.payment_terms) {
+      setPaymentTerms(selectedCustomer.payment_terms);
+    }
+  }, [selectedCustomer?.id]);
+
+  useEffect(() => {
+    if (salesOrderId || customerSalesOrders.length !== 1) return;
+    setSalesOrderId(customerSalesOrders[0].id);
+  }, [customerId, customerSalesOrders, salesOrderId]);
+
+  function updateLine(index: number, changes: Partial<SalesOrderDraftLine>) {
+    setLines((current) => current.map((line, lineIndex) => (lineIndex === index ? { ...line, ...changes } : line)));
+  }
+
+  function addLine() {
+    setLines((current) => [
+      ...current,
+      { description: "", quantity: "1", unit_price: "0.00", tax_amount: "0.00", revenue_account_id: firstRevenueId }
+    ]);
+  }
+
+  function removeLine(index: number) {
+    setLines((current) => (current.length === 1 ? current : current.filter((_, lineIndex) => lineIndex !== index)));
+  }
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canSave || customerId === "") return;
+    const payload: SalesInvoicePayload = {
+      invoice_number: invoiceNumber || undefined,
+      status,
+      customer_id: customerId,
+      sales_order_id: salesOrderId || undefined,
+      issue_date: issueDate,
+      due_date: dueDate,
+      currency,
+      payment_terms: paymentTerms || undefined,
+      notes: notes || undefined,
+      lines: lines.map((line) => ({
+        description: line.description,
+        quantity: line.quantity,
+        unit_price: line.unit_price,
+        tax_amount: line.tax_amount,
+        revenue_account_id: Number(line.revenue_account_id)
+      }))
+    };
+    setSaving(true);
+    setMessage(null);
+    try {
+      await api.createSalesInvoice(payload);
+      setInvoiceNumber("");
+      setSalesOrderId("");
+      setNotes("");
+      setMessage(status === "issued" ? "Invoice issued and posted." : "Draft invoice saved.");
+      onCreated();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Unable to save invoice.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="panel">
+      <div className="panelHeader">
+        <h2>Create Invoice</h2>
+        <span>{formatMoney(total.toFixed(2))}</span>
+      </div>
+      <form className="transactionForm" onSubmit={(event) => void submit(event)}>
+        <div className="formGrid">
+          <label>
+            Status
+            <select value={status} onChange={(event) => setStatus(event.target.value as SalesInvoiceStatus)}>
+              <option value="issued">Issue Now</option>
+              <option value="draft">Draft</option>
+            </select>
+          </label>
+          <label>
+            Invoice No.
+            <input value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} placeholder="Auto if blank" />
+          </label>
+        </div>
+        <label>
+          Customer
+          <select value={customerId} onChange={(event) => { setCustomerId(event.target.value ? Number(event.target.value) : ""); setSalesOrderId(""); }}>
+            <option value="">Select customer</option>
+            {customerContacts.map((contact) => (
+              <option key={contact.id} value={contact.id}>
+                {contact.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Link Sales Booking
+          <select value={salesOrderId} onChange={(event) => setSalesOrderId(event.target.value ? Number(event.target.value) : "")}>
+            <option value="">No linked booking</option>
+            {customerSalesOrders.map((order) => (
+              <option key={order.id} value={order.id}>
+                {order.order_number} - unbilled {formatMoney(order.unbilled_total)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="formGrid">
+          <label>
+            Issue Date
+            <input type="date" value={issueDate} onChange={(event) => setIssueDate(event.target.value)} />
+          </label>
+          <label>
+            Due Date
+            <input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
+          </label>
+        </div>
+        <div className="formGrid">
+          <label>
+            Currency
+            <input maxLength={3} value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} />
+          </label>
+          <label>
+            Payment Terms
+            <input value={paymentTerms} onChange={(event) => setPaymentTerms(event.target.value)} placeholder="Net 30" />
+          </label>
+        </div>
+        <div className="lineEditor">
+          {lines.map((line, index) => (
+            <div className="poLine" key={index}>
+              <label>
+                Description
+                <input value={line.description} onChange={(event) => updateLine(index, { description: event.target.value })} />
+              </label>
+              <div className="formGrid">
+                <label>
+                  Qty
+                  <input min="0.001" step="0.001" type="number" value={line.quantity} onChange={(event) => updateLine(index, { quantity: event.target.value })} />
+                </label>
+                <label>
+                  Unit Price
+                  <input min="0" step="0.01" type="number" value={line.unit_price} onChange={(event) => updateLine(index, { unit_price: event.target.value })} />
+                </label>
+              </div>
+              <div className="formGrid">
+                <label>
+                  Tax
+                  <input min="0" step="0.01" type="number" value={line.tax_amount} onChange={(event) => updateLine(index, { tax_amount: event.target.value })} />
+                </label>
+                <label>
+                  Revenue Account
+                  <select value={line.revenue_account_id} onChange={(event) => updateLine(index, { revenue_account_id: Number(event.target.value) })}>
+                    <option value="">Select</option>
+                    {revenueAccounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.code} {account.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <button className="smallButton" disabled={lines.length === 1} onClick={() => removeLine(index)} type="button">
+                Remove Line
+              </button>
+            </div>
+          ))}
+          <button className="smallButton" onClick={addLine} type="button">
+            <Plus size={14} />
+            Add Line
+          </button>
+        </div>
+        <label>
+          Notes
+          <input value={notes} onChange={(event) => setNotes(event.target.value)} />
+        </label>
+        <button className="primaryButton" disabled={!canSave || saving} type="submit">
+          <Plus size={18} />
+          {saving ? "Saving" : "Save Invoice"}
+        </button>
+        {message ? <p className="formMessage">{message}</p> : null}
+      </form>
+    </section>
+  );
+}
+
+function SalesInvoiceList({
+  loading,
+  salesInvoices,
+  salesOrders,
+  onChanged
+}: {
+  loading: boolean;
+  salesInvoices: SalesInvoice[];
+  salesOrders: SalesOrder[];
+  onChanged: () => void;
+}) {
+  if (loading) return <div className="empty">Loading sales invoices...</div>;
+  if (!salesInvoices.length) return <div className="empty">No sales invoices yet.</div>;
+
+  async function issue(id: number) {
+    await api.issueSalesInvoice(id);
+    onChanged();
+  }
+
+  async function linkToOrder(invoiceId: number, salesOrderId: number) {
+    await api.linkSalesInvoiceToOrder(invoiceId, salesOrderId);
+    onChanged();
+  }
+
+  return (
+    <div className="entryList">
+      {salesInvoices.map((invoice) => (
+        <article className="entry" key={invoice.id}>
+          {(() => {
+            const linkCandidates = salesOrders.filter(
+              (order) =>
+                !invoice.sales_order &&
+                order.customer.id === invoice.customer.id &&
+                !["closed", "cancelled"].includes(order.status) &&
+                Number(order.unbilled_total) >= Number(invoice.total)
+            );
+            const suggestedOrder = linkCandidates.length === 1 ? linkCandidates[0] : null;
+            return (
+              <>
+          <div className="entryHeader">
+            <div>
+              <strong>{invoice.invoice_number}</strong>
+              <span>
+                {invoice.customer.name} - Due {invoice.due_date} - {invoice.status}
+              </span>
+            </div>
+            <span>{formatMoney(invoice.amount_due)}</span>
+          </div>
+          <div className="transactionMeta purchaseMeta">
+            <span>Total {formatMoney(invoice.total)}</span>
+            <span>Paid {formatMoney(invoice.amount_paid)}</span>
+            <span>{invoice.sales_order ? invoice.sales_order.order_number : "No linked booking"}</span>
+            <span>{invoice.payment_terms ?? "No terms"}</span>
+            <div className="rowActions">
+              {invoice.status === "draft" ? (
+                <button className="smallButton" onClick={() => void issue(invoice.id)} type="button">
+                  Issue
+                </button>
+              ) : null}
+              {suggestedOrder ? (
+                <button className="smallButton" onClick={() => void linkToOrder(invoice.id, suggestedOrder.id)} type="button">
+                  Link {suggestedOrder.order_number}
+                </button>
+              ) : null}
+            </div>
+          </div>
+          <div className="entryLines poLines">
+            {invoice.lines.slice(0, 4).map((line) => (
+              <div key={line.id}>
+                <span>{line.description}</span>
+                <span>
+                  {line.quantity} x {formatMoney(line.unit_price)}
+                </span>
+                <span>{formatMoney(line.line_total)}</span>
+              </div>
+            ))}
+          </div>
+              </>
+            );
+          })()}
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function CustomerReceiptForm({
+  accounts,
+  contacts,
+  salesInvoices,
+  onCreated
+}: {
+  accounts: Account[];
+  contacts: Contact[];
+  salesInvoices: SalesInvoice[];
+  onCreated: () => void;
+}) {
+  const bankAccounts = accounts.filter((account) => account.type === "asset");
+  const customerContacts = contacts.filter((contact) => contact.type === "customer" || contact.type === "both");
+  const openInvoices = salesInvoices.filter((invoice) => !["draft", "paid", "voided"].includes(invoice.status) && Number(invoice.amount_due) > 0);
+  const [receiptNumber, setReceiptNumber] = useState("");
+  const [customerId, setCustomerId] = useState<number | "">("");
+  const [invoiceId, setInvoiceId] = useState<number | "">("");
+  const [receiptDate, setReceiptDate] = useState(today());
+  const [currency, setCurrency] = useState("SGD");
+  const [amount, setAmount] = useState("");
+  const [bankAccountId, setBankAccountId] = useState<number | "">(bankAccounts.find((account) => account.code === "1010")?.id ?? bankAccounts[0]?.id ?? "");
+  const [reference, setReference] = useState("");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const customerInvoices = openInvoices.filter((invoice) => invoice.customer.id === customerId);
+  const selectedInvoice = openInvoices.find((invoice) => invoice.id === invoiceId);
+  const suggestedReceiptNumber = selectedInvoice ? `${selectedInvoice.invoice_number}-R${compactDate(receiptDate)}-01` : "";
+  const canSave = Boolean(customerId && invoiceId && receiptDate && currency.length === 3 && Number(amount) > 0 && bankAccountId);
+
+  useEffect(() => {
+    if (selectedInvoice) {
+      setAmount(selectedInvoice.amount_due);
+      setCurrency(selectedInvoice.currency);
+      setReceiptNumber(`${selectedInvoice.invoice_number}-R${compactDate(receiptDate)}-01`);
+    }
+  }, [selectedInvoice?.id, receiptDate]);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canSave || customerId === "" || invoiceId === "" || bankAccountId === "") return;
+    const payload: CustomerReceiptPayload = {
+      receipt_number: receiptNumber && receiptNumber !== suggestedReceiptNumber ? receiptNumber : undefined,
+      status: "posted",
+      customer_id: customerId,
+      receipt_date: receiptDate,
+      currency,
+      amount,
+      bank_account_id: bankAccountId,
+      reference: reference || undefined,
+      notes: notes || undefined,
+      allocations: [{ invoice_id: invoiceId, amount }]
+    };
+    setSaving(true);
+    setMessage(null);
+    try {
+      await api.createCustomerReceipt(payload);
+      setReceiptNumber("");
+      setInvoiceId("");
+      setAmount("");
+      setReference("");
+      setNotes("");
+      setMessage("Customer receipt posted.");
+      onCreated();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Unable to post customer receipt.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="panel">
+      <div className="panelHeader">
+        <h2>Record Receipt</h2>
+        <span>{amount ? formatMoney(amount) : "No invoice"}</span>
+      </div>
+      <form className="transactionForm" onSubmit={(event) => void submit(event)}>
+        <label>
+          Customer
+          <select value={customerId} onChange={(event) => { setCustomerId(event.target.value ? Number(event.target.value) : ""); setInvoiceId(""); setAmount(""); }}>
+            <option value="">Select customer</option>
+            {customerContacts.map((contact) => (
+              <option key={contact.id} value={contact.id}>
+                {contact.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Invoice
+          <select value={invoiceId} onChange={(event) => setInvoiceId(event.target.value ? Number(event.target.value) : "")}>
+            <option value="">Select open invoice</option>
+            {customerInvoices.map((invoice) => (
+              <option key={invoice.id} value={invoice.id}>
+                {invoice.invoice_number} - {formatMoney(invoice.amount_due)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="formGrid">
+          <label>
+            Receipt No.
+            <input value={receiptNumber} onChange={(event) => setReceiptNumber(event.target.value)} placeholder={suggestedReceiptNumber || "Auto if blank"} />
+          </label>
+          <label>
+            Receipt Date
+            <input type="date" value={receiptDate} onChange={(event) => setReceiptDate(event.target.value)} />
+          </label>
+        </div>
+        <div className="formGrid">
+          <label>
+            Amount
+            <input min="0.01" step="0.01" type="number" value={amount} onChange={(event) => setAmount(event.target.value)} />
+          </label>
+          <label>
+            Bank Account
+            <select value={bankAccountId} onChange={(event) => setBankAccountId(event.target.value ? Number(event.target.value) : "")}>
+              <option value="">Select bank</option>
+              {bankAccounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.code} {account.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <label>
+          Reference
+          <input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Bank reference" />
+        </label>
+        <label>
+          Notes
+          <input value={notes} onChange={(event) => setNotes(event.target.value)} />
+        </label>
+        <button className="primaryButton" disabled={!canSave || saving} type="submit">
+          <Plus size={18} />
+          {saving ? "Posting" : "Post Receipt"}
+        </button>
+        {message ? <p className="formMessage">{message}</p> : null}
+      </form>
+    </section>
+  );
+}
+
+function CustomerReceiptList({ customerReceipts, loading }: { customerReceipts: CustomerReceipt[]; loading: boolean }) {
+  if (loading) return <div className="empty">Loading customer receipts...</div>;
+  if (!customerReceipts.length) return <div className="empty">No customer receipts yet.</div>;
+  return (
+    <div className="entryList">
+      {customerReceipts.map((receipt) => (
+        <article className="entry" key={receipt.id}>
+          <div className="entryHeader">
+            <div>
+              <strong>{receipt.receipt_number}</strong>
+              <span>
+                {receipt.customer.name} - {receipt.receipt_date} - {receipt.status}
+              </span>
+            </div>
+            <span>{formatMoney(receipt.amount)}</span>
+          </div>
+          <div className="transactionMeta purchaseMeta">
+            <span>{receipt.bank_account.code} {receipt.bank_account.name}</span>
+            <span>{receipt.reference ?? "No reference"}</span>
+            <span>{receipt.allocations.map((allocation) => allocation.invoice.invoice_number).join(", ")}</span>
+            <span>{receipt.journal_entry_id ? `Journal #${receipt.journal_entry_id}` : "No journal"}</span>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function SalesOrderForm({ accounts, contacts, onCreated }: { accounts: Account[]; contacts: Contact[]; onCreated: () => void }) {
+  const revenueAccounts = accounts.filter((account) => account.type === "revenue");
+  const customerContacts = contacts.filter((contact) => contact.type === "customer" || contact.type === "both");
+  const firstRevenueId = revenueAccounts[0]?.id ?? "";
+  const [status, setStatus] = useState<SalesOrderStatus>("received");
+  const [orderNumber, setOrderNumber] = useState("");
+  const [clientPoNumber, setClientPoNumber] = useState("");
+  const [customerId, setCustomerId] = useState<number | "">("");
+  const [receivedDate, setReceivedDate] = useState(today());
+  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState("");
+  const [currency, setCurrency] = useState("SGD");
+  const [paymentTerms, setPaymentTerms] = useState("");
+  const [depositRequired, setDepositRequired] = useState(true);
+  const [depositRate, setDepositRate] = useState("0.10");
+  const [depositAmount, setDepositAmount] = useState("");
+  const [depositDueDate, setDepositDueDate] = useState("");
+  const [depositStatus, setDepositStatus] = useState<DepositStatus>("requested");
+  const [notes, setNotes] = useState("");
+  const [deliveryInstructions, setDeliveryInstructions] = useState("");
+  const [lines, setLines] = useState<SalesOrderDraftLine[]>([
+    { description: "Client service", quantity: "1", unit_price: "1000.00", tax_amount: "0.00", revenue_account_id: firstRevenueId }
+  ]);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!firstRevenueId || !lines.length || lines.some((line) => line.revenue_account_id !== "")) return;
+    setLines((current) => current.map((line) => ({ ...line, revenue_account_id: firstRevenueId })));
+  }, [firstRevenueId, lines]);
+
+  const selectedCustomer = customerContacts.find((contact) => contact.id === customerId);
+  const total = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unit_price || 0) + Number(line.tax_amount || 0), 0);
+  const calculatedDeposit = depositRequired ? Number(depositAmount || 0) || total * Number(depositRate || 0) : 0;
+  const canSave =
+    Boolean(customerId && receivedDate && currency.length === 3 && lines.length) &&
+    lines.every((line) => line.description && Number(line.quantity) > 0 && Number(line.unit_price) >= 0 && Number(line.tax_amount) >= 0 && line.revenue_account_id) &&
+    (!depositRequired || (calculatedDeposit > 0 && calculatedDeposit <= total));
+
+  useEffect(() => {
+    if (selectedCustomer?.payment_terms) {
+      setPaymentTerms(selectedCustomer.payment_terms);
+    }
+  }, [selectedCustomer?.id]);
+
+  function updateLine(index: number, changes: Partial<SalesOrderDraftLine>) {
+    setLines((current) => current.map((line, lineIndex) => (lineIndex === index ? { ...line, ...changes } : line)));
+  }
+
+  function addLine() {
+    setLines((current) => [
+      ...current,
+      { description: "", quantity: "1", unit_price: "0.00", tax_amount: "0.00", revenue_account_id: firstRevenueId }
+    ]);
+  }
+
+  function removeLine(index: number) {
+    setLines((current) => (current.length === 1 ? current : current.filter((_, lineIndex) => lineIndex !== index)));
+  }
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canSave || customerId === "") return;
+
+    const payload: SalesOrderPayload = {
+      order_number: orderNumber || undefined,
+      client_po_number: clientPoNumber || undefined,
+      status,
+      customer_id: customerId,
+      received_date: receivedDate,
+      expected_delivery_date: expectedDeliveryDate || undefined,
+      currency,
+      payment_terms: paymentTerms || undefined,
+      deposit_required: depositRequired,
+      deposit_rate: depositRequired ? Number(depositRate || 0).toFixed(4) : "0.0000",
+      deposit_amount: depositRequired && depositAmount ? depositAmount : undefined,
+      deposit_due_date: depositRequired ? depositDueDate || undefined : undefined,
+      deposit_status: depositRequired ? depositStatus : "not_requested",
+      notes: notes || undefined,
+      delivery_instructions: deliveryInstructions || undefined,
+      lines: lines.map((line) => ({
+        description: line.description,
+        quantity: line.quantity,
+        unit_price: line.unit_price,
+        tax_amount: line.tax_amount,
+        revenue_account_id: Number(line.revenue_account_id)
+      }))
+    };
+
+    setSaving(true);
+    setMessage(null);
+    try {
+      await api.createSalesOrder(payload);
+      setOrderNumber("");
+      setClientPoNumber("");
+      setPaymentTerms("");
+      setDepositAmount("");
+      setDepositDueDate("");
+      setDepositStatus("requested");
+      setNotes("");
+      setDeliveryInstructions("");
+      setMessage("Client PO saved.");
+      onCreated();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Unable to save client PO.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="panel">
+      <div className="panelHeader">
+        <h2>Sales Booking</h2>
+        <span>{formatMoney(total)}</span>
+      </div>
+      <form className="transactionForm" onSubmit={(event) => void submit(event)}>
+        <div className="formGrid">
+          <label>
+            Status
+            <select value={status} onChange={(event) => setStatus(event.target.value as SalesOrderStatus)}>
+              <option value="draft">Draft</option>
+              <option value="received">Received</option>
+              <option value="accepted">Accepted</option>
+            </select>
+          </label>
+          <label>
+            Sales Order
+            <input value={orderNumber} onChange={(event) => setOrderNumber(event.target.value)} placeholder="Auto if blank" />
+          </label>
+        </div>
+        <label>
+          Client PO Number
+          <input value={clientPoNumber} onChange={(event) => setClientPoNumber(event.target.value)} placeholder="Optional customer PO reference" />
+        </label>
+        <label>
+          Customer
+          <select value={customerId} onChange={(event) => setCustomerId(event.target.value ? Number(event.target.value) : "")}>
+            <option value="">Select customer</option>
+            {customerContacts.map((contact) => (
+              <option key={contact.id} value={contact.id}>
+                {contact.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="formGrid">
+          <label>
+            Received Date
+            <input type="date" value={receivedDate} onChange={(event) => setReceivedDate(event.target.value)} />
+          </label>
+          <label>
+            Expected Delivery
+            <input type="date" value={expectedDeliveryDate} onChange={(event) => setExpectedDeliveryDate(event.target.value)} />
+          </label>
+        </div>
+        <label>
+          Currency
+          <input maxLength={3} value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} />
+        </label>
+        <label>
+          Payment Terms
+          <input value={paymentTerms} onChange={(event) => setPaymentTerms(event.target.value)} placeholder="Agreed customer terms" />
+        </label>
+        <div className="lineEditor">
+          <div className="poLine">
+            <label className="checkLabel">
+              <input checked={depositRequired} type="checkbox" onChange={(event) => setDepositRequired(event.target.checked)} />
+              Deposit required
+            </label>
+            {depositRequired ? (
+              <>
+                <div className="segmented">
+                  <button className={depositRate === "0.05" && !depositAmount ? "selected" : ""} onClick={() => { setDepositRate("0.05"); setDepositAmount(""); }} type="button">
+                    5%
+                  </button>
+                  <button className={depositRate === "0.10" && !depositAmount ? "selected" : ""} onClick={() => { setDepositRate("0.10"); setDepositAmount(""); }} type="button">
+                    10%
+                  </button>
+                  <button className={depositAmount ? "selected" : ""} onClick={() => setDepositAmount(calculatedDeposit ? calculatedDeposit.toFixed(2) : "")} type="button">
+                    Custom
+                  </button>
+                </div>
+                <div className="formGrid">
+                  <label>
+                    Deposit Amount
+                    <input
+                      min="0.01"
+                      step="0.01"
+                      type="number"
+                      value={depositAmount}
+                      onChange={(event) => setDepositAmount(event.target.value)}
+                      placeholder={calculatedDeposit ? calculatedDeposit.toFixed(2) : "Auto from rate"}
+                    />
+                  </label>
+                  <label>
+                    Deposit Due
+                    <input type="date" value={depositDueDate} onChange={(event) => setDepositDueDate(event.target.value)} />
+                  </label>
+                </div>
+                <label>
+                  Deposit Status
+                  <select value={depositStatus} onChange={(event) => setDepositStatus(event.target.value as DepositStatus)}>
+                    <option value="requested">Requested</option>
+                    <option value="invoiced">Invoiced</option>
+                    <option value="paid">Paid</option>
+                    <option value="applied">Applied</option>
+                  </select>
+                </label>
+                <div className="statusNote">Deposit preview: {formatMoney(calculatedDeposit.toFixed(2))}</div>
+              </>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="lineEditor">
+          {lines.map((line, index) => (
+            <div className="poLine" key={index}>
+              <label>
+                Description
+                <input value={line.description} onChange={(event) => updateLine(index, { description: event.target.value })} />
+              </label>
+              <div className="formGrid">
+                <label>
+                  Qty
+                  <input min="0.001" step="0.001" type="number" value={line.quantity} onChange={(event) => updateLine(index, { quantity: event.target.value })} />
+                </label>
+                <label>
+                  Unit Price
+                  <input min="0" step="0.01" type="number" value={line.unit_price} onChange={(event) => updateLine(index, { unit_price: event.target.value })} />
+                </label>
+              </div>
+              <div className="formGrid">
+                <label>
+                  Tax
+                  <input min="0" step="0.01" type="number" value={line.tax_amount} onChange={(event) => updateLine(index, { tax_amount: event.target.value })} />
+                </label>
+                <label>
+                  Revenue Account
+                  <select value={line.revenue_account_id} onChange={(event) => updateLine(index, { revenue_account_id: Number(event.target.value) })}>
+                    <option value="">Select</option>
+                    {revenueAccounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.code} {account.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <button className="smallButton" disabled={lines.length === 1} onClick={() => removeLine(index)} type="button">
+                Remove Line
+              </button>
+            </div>
+          ))}
+          <button className="smallButton" onClick={addLine} type="button">
+            <Plus size={14} />
+            Add Line
+          </button>
+        </div>
+
+        <label>
+          Delivery Instructions
+          <input value={deliveryInstructions} onChange={(event) => setDeliveryInstructions(event.target.value)} />
+        </label>
+        <label>
+          Notes
+          <input value={notes} onChange={(event) => setNotes(event.target.value)} />
+        </label>
+        <button className="primaryButton" disabled={!canSave || saving} type="submit">
+          <Plus size={18} />
+          {saving ? "Saving" : "Save Sales Booking"}
+        </button>
+        {message ? <p className="formMessage">{message}</p> : null}
+      </form>
+    </section>
+  );
+}
+
+function SalesOrderList({
+  loading,
+  salesOrders,
+  onChanged
+}: {
+  loading: boolean;
+  salesOrders: SalesOrder[];
+  onChanged: () => void;
+}) {
+  if (loading) return <div className="empty">Loading client purchase orders...</div>;
+  if (!salesOrders.length) return <div className="empty">No client purchase orders yet.</div>;
+
+  async function accept(id: number) {
+    await api.acceptSalesOrder(id);
+    onChanged();
+  }
+
+  async function cancel(id: number) {
+    await api.cancelSalesOrder(id);
+    onChanged();
+  }
+
+  return (
+    <div className="entryList">
+      {salesOrders.map((order) => (
+        <article className="entry" key={order.id}>
+          <div className="entryHeader">
+            <div>
+              <strong>{order.order_number}</strong>
+              <span>
+                {displayClientPo(order.client_po_number)} - {order.received_date} - {order.status}
+              </span>
+            </div>
+            <span>{formatMoney(order.total)}</span>
+          </div>
+          <div className="transactionMeta purchaseMeta">
+            <span>{order.customer.name}</span>
+            <span>{order.expected_delivery_date ?? "No delivery date"}</span>
+            <span>{order.deposit_required ? `${formatMoney(order.deposit_amount)} deposit - ${order.deposit_status}` : "No deposit"}</span>
+            <span>{order.payment_terms ?? "No terms"}</span>
+            <div className="rowActions">
+              {["draft", "received"].includes(order.status) ? (
+                <button className="smallButton" onClick={() => void accept(order.id)} type="button">
+                  Accept
+                </button>
+              ) : null}
+              {["draft", "received", "accepted"].includes(order.status) ? (
+                <button className="smallButton" onClick={() => void cancel(order.id)} type="button">
+                  Cancel
+                </button>
+              ) : null}
+            </div>
+          </div>
+          <div className="transactionMeta purchaseMeta">
+            <span>Ordered {formatMoney(order.total)}</span>
+            <span>Invoiced {formatMoney(order.invoiced_total)}</span>
+            <span>Paid {formatMoney(order.paid_total)}</span>
+            <span>Unbilled {formatMoney(order.unbilled_total)}</span>
+          </div>
+          <div className="entryLines poLines">
+            {order.lines.slice(0, 4).map((line) => (
+              <div key={line.id}>
+                <span>{line.description}</span>
+                <span>
+                  {line.quantity} x {formatMoney(line.unit_price)}
+                </span>
+                <span>{formatMoney(line.line_total)}</span>
+              </div>
+            ))}
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
 function PurchasingView({
   accounts,
   contacts,
@@ -468,17 +1815,31 @@ function PurchasingView({
   purchaseOrders: PurchaseOrder[];
   onChanged: () => void;
 }) {
+  const vendorContacts = contacts.filter((contact) => contact.type === "vendor" || contact.type === "both");
+
   return (
-    <div className="workspace">
-      <PurchaseOrderForm accounts={accounts} contacts={contacts} onCreated={onChanged} />
-      <section className="panel">
-        <div className="panelHeader">
-          <h2>Purchase Orders</h2>
-          <span>{purchaseOrders.length} records</span>
-        </div>
-        <PurchaseOrderList loading={loading} purchaseOrders={purchaseOrders} onChanged={onChanged} />
-      </section>
-    </div>
+    <>
+      <div className="workspace">
+        <ContactForm accounts={accounts} fixedType="vendor" title="New Vendor" subtitle="Purchasing master record" onCreated={onChanged} />
+        <section className="panel">
+          <div className="panelHeader">
+            <h2>Vendor Master</h2>
+            <span>{vendorContacts.length} vendors</span>
+          </div>
+          {loading ? <div className="empty">Loading vendors...</div> : <ContactList contacts={vendorContacts} />}
+        </section>
+      </div>
+      <div className="workspace">
+        <PurchaseOrderForm accounts={accounts} contacts={contacts} onCreated={onChanged} />
+        <section className="panel">
+          <div className="panelHeader">
+            <h2>Purchase Orders</h2>
+            <span>{purchaseOrders.length} records</span>
+          </div>
+          <PurchaseOrderList loading={loading} purchaseOrders={purchaseOrders} onChanged={onChanged} />
+        </section>
+      </div>
+    </>
   );
 }
 
@@ -976,7 +2337,7 @@ function cpfProfileLabel(profile: CpfProfile) {
   return "Custom CPF";
 }
 
-function PayrollView({
+function HrPayrollView({
   accounts,
   employees,
   loading,
@@ -995,6 +2356,16 @@ function PayrollView({
 
   return (
     <>
+      <div className="workspace">
+        <EmployeeForm onCreated={onChanged} />
+        <section className="panel">
+          <div className="panelHeader">
+            <h2>Employee Master</h2>
+            <span>{employees.length} employees</span>
+          </div>
+          {loading ? <div className="empty">Loading employees...</div> : <EmployeeList employees={employees} />}
+        </section>
+      </div>
       <div className="workspace">
         <PayrollForm accounts={accounts} employees={employees} onCreated={onChanged} />
         <section className="panel">
@@ -1420,10 +2791,22 @@ function ContactsView({
   );
 }
 
-function ContactForm({ accounts, onCreated }: { accounts: Account[]; onCreated: () => void }) {
+function ContactForm({
+  accounts,
+  fixedType,
+  title = "New Contact",
+  subtitle = "Customer or vendor",
+  onCreated
+}: {
+  accounts: Account[];
+  fixedType?: ContactPayload["type"];
+  title?: string;
+  subtitle?: string;
+  onCreated: () => void;
+}) {
   const expenseAccounts = accounts.filter((account) => account.type === "expense");
   const [name, setName] = useState("");
-  const [type, setType] = useState<ContactPayload["type"]>("vendor");
+  const [type, setType] = useState<ContactPayload["type"]>(fixedType ?? "vendor");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [taxIdentifier, setTaxIdentifier] = useState("");
@@ -1436,6 +2819,12 @@ function ContactForm({ accounts, onCreated }: { accounts: Account[]; onCreated: 
   const [message, setMessage] = useState<string | null>(null);
 
   const isVendor = type === "vendor" || type === "both";
+
+  useEffect(() => {
+    if (fixedType) {
+      setType(fixedType);
+    }
+  }, [fixedType]);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1450,7 +2839,7 @@ function ContactForm({ accounts, onCreated }: { accounts: Account[]; onCreated: 
         phone: phone || undefined,
         tax_identifier: taxIdentifier || undefined,
         vendor_qualification_status: isVendor ? vendorQualificationStatus : "pending",
-        payment_terms: isVendor ? paymentTerms || undefined : undefined,
+        payment_terms: paymentTerms || undefined,
         default_expense_account_id: isVendor && defaultExpenseAccountId !== "" ? defaultExpenseAccountId : undefined,
         qualification_expires_on: isVendor ? qualificationExpiresOn || undefined : undefined,
         qualification_notes: isVendor ? qualificationNotes || undefined : undefined
@@ -1473,22 +2862,24 @@ function ContactForm({ accounts, onCreated }: { accounts: Account[]; onCreated: 
   return (
     <section className="panel">
       <div className="panelHeader">
-        <h2>New Contact</h2>
-        <span>Customer or vendor</span>
+        <h2>{title}</h2>
+        <span>{subtitle}</span>
       </div>
       <form className="transactionForm" onSubmit={(event) => void submit(event)}>
         <label>
           Name
           <input value={name} onChange={(event) => setName(event.target.value)} />
         </label>
-        <label>
-          Type
-          <select value={type} onChange={(event) => setType(event.target.value as ContactPayload["type"])}>
-            <option value="vendor">Vendor</option>
-            <option value="customer">Customer</option>
-            <option value="both">Both</option>
-          </select>
-        </label>
+        {fixedType ? null : (
+          <label>
+            Type
+            <select value={type} onChange={(event) => setType(event.target.value as ContactPayload["type"])}>
+              <option value="vendor">Vendor</option>
+              <option value="customer">Customer</option>
+              <option value="both">Both</option>
+            </select>
+          </label>
+        )}
         <label>
           Email
           <input value={email} onChange={(event) => setEmail(event.target.value)} />
@@ -1501,6 +2892,10 @@ function ContactForm({ accounts, onCreated }: { accounts: Account[]; onCreated: 
           Tax Identifier
           <input value={taxIdentifier} onChange={(event) => setTaxIdentifier(event.target.value)} />
         </label>
+        <label>
+          Default Payment Terms
+          <input value={paymentTerms} onChange={(event) => setPaymentTerms(event.target.value)} />
+        </label>
         {isVendor ? (
           <>
             <label>
@@ -1511,10 +2906,6 @@ function ContactForm({ accounts, onCreated }: { accounts: Account[]; onCreated: 
                 <option value="suspended">Suspended</option>
                 <option value="rejected">Rejected</option>
               </select>
-            </label>
-            <label>
-              Default Payment Terms
-              <input value={paymentTerms} onChange={(event) => setPaymentTerms(event.target.value)} />
             </label>
             <label>
               Default Expense Account
@@ -1575,7 +2966,17 @@ function ReportsView({ balanceSheet, loading, profitAndLoss }: { balanceSheet: B
   );
 }
 
-function SettingsView({ settings, onChanged }: { settings: CompanySettings; onChanged: () => void }) {
+function SettingsView({
+  accounts,
+  loading,
+  settings,
+  onChanged
+}: {
+  accounts: Account[];
+  loading: boolean;
+  settings: CompanySettings;
+  onChanged: () => void;
+}) {
   const [companyName, setCompanyName] = useState(settings.company_name);
   const [registrationNumber, setRegistrationNumber] = useState(settings.registration_number ?? "");
   const [fiscalYearStartMonth, setFiscalYearStartMonth] = useState(String(settings.fiscal_year_start_month));
@@ -1600,35 +3001,52 @@ function SettingsView({ settings, onChanged }: { settings: CompanySettings; onCh
   }
 
   return (
-    <section className="panel settingsPanel">
-      <div className="panelHeader">
-        <h2>Company Settings</h2>
-        <span>Reporting defaults</span>
-      </div>
-      <form className="transactionForm" onSubmit={(event) => void submit(event)}>
-        <label>
-          Company Name
-          <input value={companyName} onChange={(event) => setCompanyName(event.target.value)} />
-        </label>
-        <label>
-          Registration Number
-          <input value={registrationNumber} onChange={(event) => setRegistrationNumber(event.target.value)} />
-        </label>
-        <label>
-          Fiscal Year Start Month
-          <input min="1" max="12" type="number" value={fiscalYearStartMonth} onChange={(event) => setFiscalYearStartMonth(event.target.value)} />
-        </label>
-        <label>
-          Base Currency
-          <input maxLength={3} value={baseCurrency} onChange={(event) => setBaseCurrency(event.target.value.toUpperCase())} />
-        </label>
-        <button className="primaryButton" type="submit">
-          <Building2 size={18} />
-          Save
-        </button>
-        {message ? <p className="formMessage">{message}</p> : null}
-      </form>
-    </section>
+    <>
+      <section className="panel settingsPanel">
+        <div className="panelHeader">
+          <h2>Company Settings</h2>
+          <span>Reporting defaults</span>
+        </div>
+        <form className="transactionForm" onSubmit={(event) => void submit(event)}>
+          <label>
+            Company Name
+            <input value={companyName} onChange={(event) => setCompanyName(event.target.value)} />
+          </label>
+          <label>
+            Registration Number
+            <input value={registrationNumber} onChange={(event) => setRegistrationNumber(event.target.value)} />
+          </label>
+          <label>
+            Fiscal Year Start Month
+            <input min="1" max="12" type="number" value={fiscalYearStartMonth} onChange={(event) => setFiscalYearStartMonth(event.target.value)} />
+          </label>
+          <label>
+            Base Currency
+            <input maxLength={3} value={baseCurrency} onChange={(event) => setBaseCurrency(event.target.value.toUpperCase())} />
+          </label>
+          <button className="primaryButton" type="submit">
+            <Building2 size={18} />
+            Save
+          </button>
+          {message ? <p className="formMessage">{message}</p> : null}
+        </form>
+      </section>
+
+      <section className="panel">
+        <div className="panelHeader">
+          <h2>Chart of Accounts Setup</h2>
+          <span>{accounts.length} accounts</span>
+        </div>
+        <ChartOfAccountsTools onChanged={onChanged} />
+        <div className="printArea">
+          <div className="printHeader">
+            <h2>Chart of Accounts</h2>
+            <span>Generated {today()}</span>
+          </div>
+          <AccountsTable accounts={accounts} loading={loading} />
+        </div>
+      </section>
+    </>
   );
 }
 

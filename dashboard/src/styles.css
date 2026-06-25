@@ -176,6 +176,93 @@ h2 {
   margin-bottom: 16px;
 }
 
+.clientHistoryLayout {
+  align-items: start;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 320px 1fr;
+}
+
+.clientSelector,
+.historySections {
+  display: grid;
+  gap: 10px;
+}
+
+.clientOption {
+  background: #ffffff;
+  border: 1px solid #dce4e7;
+  border-radius: 8px;
+  color: #405760;
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  text-align: left;
+  width: 100%;
+}
+
+.clientOption.active {
+  background: #e8f3f0;
+  border-color: #91beb5;
+  color: #12353b;
+}
+
+.clientOption span {
+  color: #64777e;
+  font-size: 0.82rem;
+}
+
+.clientTotals {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.historyGroup {
+  display: grid;
+  gap: 8px;
+}
+
+.clientHistoryMeta {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.arAgeingPanel {
+  margin-bottom: 16px;
+}
+
+.ageingSummary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin-bottom: 12px;
+}
+
+.ageingBucket {
+  background: #f4f8f7;
+  border: 1px solid #dce4e7;
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  min-height: 72px;
+  padding: 12px;
+}
+
+.ageingBucket span {
+  color: #64777e;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.ageingBucket strong {
+  color: #12353b;
+  font-size: 1rem;
+}
+
+.ageingBucket.total {
+  background: #e8f3f0;
+  border-color: #bad5cf;
+}
+
 .reportGrid {
   display: grid;
   gap: 16px;
@@ -275,13 +362,21 @@ h2 {
   justify-content: flex-end;
 }
 
+.coaTools {
+  border-bottom: 1px solid #edf1f2;
+  display: grid;
+  gap: 10px;
+  margin: -2px 0 12px;
+  padding-bottom: 12px;
+}
+
 .segmented {
   background: #eef3f4;
   border: 1px solid #dce4e7;
   border-radius: 8px;
   display: grid;
   gap: 4px;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
   padding: 4px;
 }
 
@@ -295,7 +390,8 @@ h2 {
   min-height: 34px;
 }
 
-.segmented button.selected {
+.segmented button.selected,
+.segmented button.active {
   background: #ffffff;
   color: #12353b;
 }
@@ -306,6 +402,17 @@ label {
   font-size: 0.84rem;
   font-weight: 700;
   gap: 6px;
+}
+
+.checkLabel {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.checkLabel input {
+  min-height: auto;
+  width: auto;
 }
 
 input,
@@ -324,6 +431,45 @@ select {
   font-size: 0.86rem;
 }
 
+.validationSummary {
+  background: #f7faf9;
+  border: 1px solid #dce4e7;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.validationSummary > div:first-child {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.validationSummary strong {
+  color: #12353b;
+}
+
+.validationSummary span,
+.validationGroup span {
+  color: #64777e;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.validationGroup {
+  display: grid;
+  gap: 4px;
+}
+
+.validationGroup ul {
+  color: #405760;
+  font-size: 0.82rem;
+  margin: 0;
+  padding-left: 18px;
+}
+
 .smallButton {
   align-items: center;
   background: #ffffff;
@@ -337,6 +483,16 @@ select {
   justify-content: center;
   min-height: 34px;
   padding: 0 12px;
+}
+
+.smallButton.disabled,
+.smallButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.printHeader {
+  display: none;
 }
 
 .tableWrap {
@@ -601,6 +757,9 @@ th {
 @media (max-width: 880px) {
   .metrics,
   .workspace,
+  .clientHistoryLayout,
+  .clientTotals,
+  .ageingSummary,
   .reportGrid {
     grid-template-columns: 1fr;
   }
@@ -625,6 +784,7 @@ th {
   }
 
   .formGrid,
+  .clientHistoryMeta,
   .employeeMeta,
   .payrollMeta,
   .purchaseMeta {
@@ -667,6 +827,22 @@ th {
   .printArea,
   .printArea * {
     visibility: visible;
+  }
+
+  .printArea {
+    left: 0;
+    position: absolute;
+    top: 0;
+    width: 100%;
+  }
+
+  .printHeader {
+    align-items: baseline;
+    border-bottom: 1px solid #dce4e7;
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    padding-bottom: 8px;
   }
 
   .noPrint,

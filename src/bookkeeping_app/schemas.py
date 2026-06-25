@@ -7,10 +7,14 @@ from .models import (
     AccountType,
     ContactType,
     CpfProfile,
+    CustomerReceiptStatus,
+    DepositStatus,
     EmployeeStatus,
+    SalesInvoiceStatus,
     PayrollStatus,
     PurchaseOrderStatus,
     ReceiptExtractionStatus,
+    SalesOrderStatus,
     TransactionKind,
     TransactionStatus,
     VendorQualificationStatus,
@@ -31,6 +35,33 @@ class AccountRead(AccountCreate):
     is_active: bool
     created_at: datetime
     balance: Decimal = Decimal("0.00")
+
+
+class ChartOfAccountsImport(BaseModel):
+    mode: str = Field(pattern="^(setup_replace|add_only)$")
+    csv_text: str = Field(min_length=1)
+
+
+class ChartOfAccountsValidationIssue(BaseModel):
+    code: str
+    message: str
+
+
+class ChartOfAccountsValidationResult(BaseModel):
+    mode: str
+    can_import: bool
+    account_count: int
+    errors: list[ChartOfAccountsValidationIssue] = Field(default_factory=list)
+    warnings: list[ChartOfAccountsValidationIssue] = Field(default_factory=list)
+    info: list[ChartOfAccountsValidationIssue] = Field(default_factory=list)
+
+
+class ChartOfAccountsImportResult(BaseModel):
+    mode: str
+    created: int
+    updated: int
+    skipped: int
+    errors: list[str] = Field(default_factory=list)
 
 
 class JournalLineCreate(BaseModel):
@@ -101,6 +132,47 @@ class DashboardSummary(BaseModel):
     expenses: Decimal
     net_income: Decimal
     recent_entries: list[JournalEntryRead]
+
+
+class AccountsReceivableAgeingRow(BaseModel):
+    customer_id: int | None
+    customer_name: str
+    current: Decimal
+    days_31_60: Decimal
+    days_61_90: Decimal
+    days_over_90: Decimal
+    total: Decimal
+
+
+class AccountsReceivableAgeingReport(BaseModel):
+    as_of: date
+    current: Decimal
+    days_31_60: Decimal
+    days_61_90: Decimal
+    days_over_90: Decimal
+    total: Decimal
+    rows: list[AccountsReceivableAgeingRow]
+
+
+class ClientHistoryEntry(BaseModel):
+    customer: "ContactRead"
+    ordered_total: Decimal
+    invoiced_total: Decimal
+    paid_total: Decimal
+    receivable_total: Decimal
+    unbilled_total: Decimal
+    sales_orders: list["SalesOrderRead"]
+    sales_invoices: list["SalesInvoiceRead"]
+    customer_receipts: list["CustomerReceiptRead"]
+
+
+class ClientHistoryReport(BaseModel):
+    ordered_total: Decimal
+    invoiced_total: Decimal
+    paid_total: Decimal
+    receivable_total: Decimal
+    unbilled_total: Decimal
+    clients: list[ClientHistoryEntry]
 
 
 class CompanySettingsUpdate(BaseModel):
@@ -363,6 +435,300 @@ class PurchaseOrderRead(BaseModel):
     lines: list[PurchaseOrderLineRead]
     issued_at: datetime | None
     cancelled_at: datetime | None
+    created_at: datetime
+
+
+class SalesOrderLineCreate(BaseModel):
+    description: str = Field(min_length=1, max_length=240)
+    quantity: Decimal
+    unit_price: Decimal
+    tax_amount: Decimal = Decimal("0.00")
+    revenue_account_id: int
+
+    @field_validator("quantity")
+    @classmethod
+    def quantity_must_be_positive(cls, value: Decimal) -> Decimal:
+        if value <= 0:
+            raise ValueError("Quantity must be greater than zero.")
+        return value.quantize(Decimal("0.001"))
+
+    @field_validator("unit_price")
+    @classmethod
+    def unit_price_cannot_be_negative(cls, value: Decimal) -> Decimal:
+        if value < 0:
+            raise ValueError("Unit price cannot be negative.")
+        return value.quantize(Decimal("0.01"))
+
+    @field_validator("tax_amount")
+    @classmethod
+    def tax_amount_cannot_be_negative(cls, value: Decimal) -> Decimal:
+        if value < 0:
+            raise ValueError("Tax amount cannot be negative.")
+        return value.quantize(Decimal("0.01"))
+
+
+class SalesOrderCreate(BaseModel):
+    order_number: str | None = Field(default=None, max_length=40)
+    client_po_number: str | None = Field(default=None, max_length=80)
+    status: SalesOrderStatus = SalesOrderStatus.RECEIVED
+    customer_id: int
+    received_date: date
+    expected_delivery_date: date | None = None
+    currency: str = Field(default="SGD", min_length=3, max_length=3)
+    payment_terms: str | None = Field(default=None, max_length=120)
+    deposit_required: bool = False
+    deposit_rate: Decimal = Decimal("0.1000")
+    deposit_amount: Decimal | None = None
+    deposit_due_date: date | None = None
+    deposit_status: DepositStatus = DepositStatus.NOT_REQUESTED
+    notes: str | None = None
+    delivery_instructions: str | None = None
+    lines: list[SalesOrderLineCreate] = Field(min_length=1)
+
+    @field_validator("currency")
+    @classmethod
+    def currency_uppercase(cls, value: str) -> str:
+        return value.upper()
+
+    @field_validator("deposit_rate")
+    @classmethod
+    def deposit_rate_is_percentage(cls, value: Decimal) -> Decimal:
+        if value < 0 or value > 1:
+            raise ValueError("Deposit rate must be between 0 and 1.")
+        return value.quantize(Decimal("0.0001"))
+
+    @field_validator("deposit_amount")
+    @classmethod
+    def deposit_amount_cannot_be_negative(cls, value: Decimal | None) -> Decimal | None:
+        if value is None:
+            return value
+        if value < 0:
+            raise ValueError("Deposit amount cannot be negative.")
+        return value.quantize(Decimal("0.01"))
+
+    @model_validator(mode="after")
+    def sales_order_terms_are_valid(self) -> "SalesOrderCreate":
+        if self.expected_delivery_date and self.expected_delivery_date < self.received_date:
+            raise ValueError("Expected delivery date cannot be before received date.")
+        if self.deposit_due_date and self.deposit_due_date < self.received_date:
+            raise ValueError("Deposit due date cannot be before received date.")
+        if not self.deposit_required:
+            self.deposit_rate = Decimal("0.0000")
+            self.deposit_amount = Decimal("0.00")
+            self.deposit_due_date = None
+            self.deposit_status = DepositStatus.NOT_REQUESTED
+        elif self.deposit_status == DepositStatus.NOT_REQUESTED:
+            self.deposit_status = DepositStatus.REQUESTED
+        return self
+
+
+class SalesOrderLineRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    description: str
+    quantity: Decimal
+    unit_price: Decimal
+    tax_amount: Decimal
+    line_total: Decimal
+    revenue_account: AccountRead
+
+
+class SalesOrderRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    order_number: str
+    client_po_number: str
+    status: SalesOrderStatus
+    customer: ContactRead
+    received_date: date
+    expected_delivery_date: date | None
+    currency: str
+    payment_terms: str | None
+    deposit_required: bool
+    deposit_rate: Decimal
+    deposit_amount: Decimal
+    deposit_due_date: date | None
+    deposit_status: DepositStatus
+    deposit_transaction_id: int | None
+    notes: str | None
+    delivery_instructions: str | None
+    subtotal: Decimal
+    tax_total: Decimal
+    total: Decimal
+    invoiced_total: Decimal
+    paid_total: Decimal
+    unbilled_total: Decimal
+    lines: list[SalesOrderLineRead]
+    accepted_at: datetime | None
+    cancelled_at: datetime | None
+    created_at: datetime
+
+
+class SalesInvoiceLineCreate(BaseModel):
+    description: str = Field(min_length=1, max_length=240)
+    quantity: Decimal
+    unit_price: Decimal
+    tax_amount: Decimal = Decimal("0.00")
+    revenue_account_id: int
+
+    @field_validator("quantity")
+    @classmethod
+    def quantity_must_be_positive(cls, value: Decimal) -> Decimal:
+        if value <= 0:
+            raise ValueError("Quantity must be greater than zero.")
+        return value.quantize(Decimal("0.001"))
+
+    @field_validator("unit_price")
+    @classmethod
+    def unit_price_cannot_be_negative(cls, value: Decimal) -> Decimal:
+        if value < 0:
+            raise ValueError("Unit price cannot be negative.")
+        return value.quantize(Decimal("0.01"))
+
+    @field_validator("tax_amount")
+    @classmethod
+    def tax_amount_cannot_be_negative(cls, value: Decimal) -> Decimal:
+        if value < 0:
+            raise ValueError("Tax amount cannot be negative.")
+        return value.quantize(Decimal("0.01"))
+
+
+class SalesInvoiceCreate(BaseModel):
+    invoice_number: str | None = Field(default=None, max_length=40)
+    status: SalesInvoiceStatus = SalesInvoiceStatus.DRAFT
+    customer_id: int
+    sales_order_id: int | None = None
+    issue_date: date
+    due_date: date
+    currency: str = Field(default="SGD", min_length=3, max_length=3)
+    payment_terms: str | None = Field(default=None, max_length=120)
+    notes: str | None = None
+    lines: list[SalesInvoiceLineCreate] = Field(min_length=1)
+
+    @field_validator("currency")
+    @classmethod
+    def currency_uppercase(cls, value: str) -> str:
+        return value.upper()
+
+    @model_validator(mode="after")
+    def invoice_dates_are_valid(self) -> "SalesInvoiceCreate":
+        if self.due_date < self.issue_date:
+            raise ValueError("Due date cannot be before issue date.")
+        return self
+
+
+class SalesInvoiceLinkSalesOrder(BaseModel):
+    sales_order_id: int
+
+
+class SalesInvoiceLineRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    description: str
+    quantity: Decimal
+    unit_price: Decimal
+    tax_amount: Decimal
+    line_total: Decimal
+    revenue_account: AccountRead
+
+
+class SalesInvoiceRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    invoice_number: str
+    status: SalesInvoiceStatus
+    customer: ContactRead
+    sales_order: SalesOrderRead | None
+    issue_date: date
+    due_date: date
+    currency: str
+    payment_terms: str | None
+    notes: str | None
+    subtotal: Decimal
+    tax_total: Decimal
+    total: Decimal
+    amount_paid: Decimal
+    amount_due: Decimal
+    journal_entry_id: int | None
+    lines: list[SalesInvoiceLineRead]
+    issued_at: datetime | None
+    voided_at: datetime | None
+    created_at: datetime
+
+
+class CustomerReceiptAllocationCreate(BaseModel):
+    invoice_id: int
+    amount: Decimal
+
+    @field_validator("amount")
+    @classmethod
+    def amount_must_be_positive(cls, value: Decimal) -> Decimal:
+        if value <= 0:
+            raise ValueError("Allocation amount must be greater than zero.")
+        return value.quantize(Decimal("0.01"))
+
+
+class CustomerReceiptCreate(BaseModel):
+    receipt_number: str | None = Field(default=None, max_length=40)
+    status: CustomerReceiptStatus = CustomerReceiptStatus.POSTED
+    customer_id: int
+    receipt_date: date
+    currency: str = Field(default="SGD", min_length=3, max_length=3)
+    amount: Decimal
+    bank_account_id: int
+    reference: str | None = Field(default=None, max_length=80)
+    notes: str | None = None
+    allocations: list[CustomerReceiptAllocationCreate] = Field(min_length=1)
+
+    @field_validator("currency")
+    @classmethod
+    def currency_uppercase(cls, value: str) -> str:
+        return value.upper()
+
+    @field_validator("amount")
+    @classmethod
+    def amount_must_be_positive(cls, value: Decimal) -> Decimal:
+        if value <= 0:
+            raise ValueError("Receipt amount must be greater than zero.")
+        return value.quantize(Decimal("0.01"))
+
+    @model_validator(mode="after")
+    def allocations_match_receipt_amount(self) -> "CustomerReceiptCreate":
+        allocation_total = sum(allocation.amount for allocation in self.allocations)
+        if allocation_total != self.amount:
+            raise ValueError("Receipt allocations must equal the receipt amount.")
+        return self
+
+
+class CustomerReceiptAllocationRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    invoice: SalesInvoiceRead
+    amount: Decimal
+
+
+class CustomerReceiptRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    receipt_number: str
+    status: CustomerReceiptStatus
+    customer: ContactRead
+    receipt_date: date
+    currency: str
+    amount: Decimal
+    bank_account: AccountRead
+    reference: str | None
+    notes: str | None
+    journal_entry_id: int | None
+    allocations: list[CustomerReceiptAllocationRead]
+    posted_at: datetime | None
+    voided_at: datetime | None
     created_at: datetime
 
 

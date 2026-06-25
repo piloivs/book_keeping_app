@@ -2,27 +2,39 @@ from decimal import Decimal
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from .accounting import (
+    accounts_to_csv,
     create_journal_entry,
+    default_accounts_csv,
+    import_chart_of_accounts,
     list_accounts_with_balances,
     recent_entries,
     seed_default_accounts,
     serialize_entry,
+    validate_chart_of_accounts,
 )
 from .config import get_settings
 from .database import Base, SessionLocal, engine, get_db
 from .models import Account, AccountType
 from .operations import (
+    accounts_receivable_ageing,
     balance_sheet,
     apply_local_schema_updates,
+    accept_sales_order,
     cancel_purchase_order,
+    cancel_sales_order,
+    client_history,
+    create_customer_receipt,
     create_contact,
     create_employee,
     create_operational_transaction,
     create_payroll_run,
     create_purchase_order,
+    create_sales_invoice,
+    create_sales_order,
     extract_receipt_details,
     get_company_settings,
     list_contacts,
@@ -30,9 +42,15 @@ from .operations import (
     list_operational_transactions,
     list_payroll_runs,
     list_purchase_orders,
+    list_customer_receipts,
+    list_sales_invoices,
+    list_sales_orders,
     post_payroll_run,
+    post_unposted_paid_sales_order_deposits,
     post_operational_transaction,
     issue_purchase_order,
+    issue_sales_invoice,
+    link_sales_invoice_to_sales_order,
     profit_and_loss,
     seed_company_settings,
     update_company_settings,
@@ -40,11 +58,18 @@ from .operations import (
 from .schemas import (
     AccountCreate,
     AccountRead,
+    AccountsReceivableAgeingReport,
     BalanceSheetReport,
+    ChartOfAccountsImport,
+    ChartOfAccountsImportResult,
+    ChartOfAccountsValidationResult,
+    ClientHistoryReport,
     CompanySettingsRead,
     CompanySettingsUpdate,
     ContactCreate,
     ContactRead,
+    CustomerReceiptCreate,
+    CustomerReceiptRead,
     DashboardSummary,
     EmployeeCreate,
     EmployeeRead,
@@ -58,6 +83,11 @@ from .schemas import (
     PurchaseOrderCreate,
     PurchaseOrderRead,
     ReceiptExtractionRead,
+    SalesInvoiceCreate,
+    SalesInvoiceLinkSalesOrder,
+    SalesInvoiceRead,
+    SalesOrderCreate,
+    SalesOrderRead,
 )
 
 settings = get_settings()
@@ -79,6 +109,7 @@ def on_startup() -> None:
         apply_local_schema_updates(db)
         seed_default_accounts(db)
         seed_company_settings(db)
+        post_unposted_paid_sales_order_deposits(db)
 
 
 @app.get("/health")
@@ -94,6 +125,25 @@ def get_accounts(db: Session = Depends(get_db)) -> list[AccountRead]:
     ]
 
 
+@app.get("/accounts/template.csv")
+def get_accounts_template() -> Response:
+    return Response(
+        content=default_accounts_csv(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="chart-of-accounts-template.csv"'},
+    )
+
+
+@app.get("/accounts/export.csv")
+def get_accounts_export(db: Session = Depends(get_db)) -> Response:
+    accounts = [account for account, _balance in list_accounts_with_balances(db)]
+    return Response(
+        content=accounts_to_csv(accounts),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="chart-of-accounts.csv"'},
+    )
+
+
 @app.post("/accounts", response_model=AccountRead, status_code=201)
 def post_account(payload: AccountCreate, db: Session = Depends(get_db)) -> AccountRead:
     account = Account(**payload.model_dump())
@@ -105,6 +155,19 @@ def post_account(payload: AccountCreate, db: Session = Depends(get_db)) -> Accou
         raise HTTPException(status_code=400, detail="Account code must be unique.") from exc
     db.refresh(account)
     return AccountRead.model_validate(account).model_copy(update={"balance": Decimal("0.00")})
+
+
+@app.post("/accounts/import", response_model=ChartOfAccountsImportResult)
+def post_accounts_import(payload: ChartOfAccountsImport, db: Session = Depends(get_db)) -> ChartOfAccountsImportResult:
+    result = import_chart_of_accounts(db, payload.csv_text, mode=payload.mode)
+    if result.errors:
+        raise HTTPException(status_code=400, detail=result.errors)
+    return result
+
+
+@app.post("/accounts/validate", response_model=ChartOfAccountsValidationResult)
+def post_accounts_validate(payload: ChartOfAccountsImport, db: Session = Depends(get_db)) -> ChartOfAccountsValidationResult:
+    return validate_chart_of_accounts(db, payload.csv_text, mode=payload.mode)
 
 
 @app.get("/company-settings", response_model=CompanySettingsRead)
@@ -219,6 +282,81 @@ def post_purchase_order_cancel(purchase_order_id: int, db: Session = Depends(get
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.get("/sales-orders", response_model=list[SalesOrderRead])
+def get_sales_orders(limit: int = 50, db: Session = Depends(get_db)) -> list[SalesOrderRead]:
+    return list_sales_orders(db, limit=limit)
+
+
+@app.post("/sales-orders", response_model=SalesOrderRead, status_code=201)
+def post_sales_order(payload: SalesOrderCreate, db: Session = Depends(get_db)) -> SalesOrderRead:
+    try:
+        return create_sales_order(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/sales-orders/{sales_order_id}/accept", response_model=SalesOrderRead)
+def post_sales_order_accept(sales_order_id: int, db: Session = Depends(get_db)) -> SalesOrderRead:
+    try:
+        return accept_sales_order(db, sales_order_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/sales-orders/{sales_order_id}/cancel", response_model=SalesOrderRead)
+def post_sales_order_cancel(sales_order_id: int, db: Session = Depends(get_db)) -> SalesOrderRead:
+    try:
+        return cancel_sales_order(db, sales_order_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/sales-invoices", response_model=list[SalesInvoiceRead])
+def get_sales_invoices(limit: int = 50, db: Session = Depends(get_db)) -> list[SalesInvoiceRead]:
+    return list_sales_invoices(db, limit=limit)
+
+
+@app.post("/sales-invoices", response_model=SalesInvoiceRead, status_code=201)
+def post_sales_invoice(payload: SalesInvoiceCreate, db: Session = Depends(get_db)) -> SalesInvoiceRead:
+    try:
+        return create_sales_invoice(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/sales-invoices/{invoice_id}/issue", response_model=SalesInvoiceRead)
+def post_sales_invoice_issue(invoice_id: int, db: Session = Depends(get_db)) -> SalesInvoiceRead:
+    try:
+        return issue_sales_invoice(db, invoice_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/sales-invoices/{invoice_id}/link-sales-order", response_model=SalesInvoiceRead)
+def post_sales_invoice_link_sales_order(
+    invoice_id: int,
+    payload: SalesInvoiceLinkSalesOrder,
+    db: Session = Depends(get_db),
+) -> SalesInvoiceRead:
+    try:
+        return link_sales_invoice_to_sales_order(db, invoice_id, payload.sales_order_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/customer-receipts", response_model=list[CustomerReceiptRead])
+def get_customer_receipts(limit: int = 50, db: Session = Depends(get_db)) -> list[CustomerReceiptRead]:
+    return list_customer_receipts(db, limit=limit)
+
+
+@app.post("/customer-receipts", response_model=CustomerReceiptRead, status_code=201)
+def post_customer_receipt(payload: CustomerReceiptCreate, db: Session = Depends(get_db)) -> CustomerReceiptRead:
+    try:
+        return create_customer_receipt(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/journal-entries", response_model=list[JournalEntryRead])
 def get_journal_entries(limit: int = 25, db: Session = Depends(get_db)) -> list[JournalEntryRead]:
     return recent_entries(db, limit=limit)
@@ -265,3 +403,13 @@ def get_profit_and_loss(db: Session = Depends(get_db)) -> ProfitAndLossReport:
 @app.get("/reports/balance-sheet", response_model=BalanceSheetReport)
 def get_balance_sheet(db: Session = Depends(get_db)) -> BalanceSheetReport:
     return balance_sheet(db)
+
+
+@app.get("/reports/client-history", response_model=ClientHistoryReport)
+def get_client_history(db: Session = Depends(get_db)) -> ClientHistoryReport:
+    return client_history(db)
+
+
+@app.get("/reports/accounts-receivable-ageing", response_model=AccountsReceivableAgeingReport)
+def get_accounts_receivable_ageing(db: Session = Depends(get_db)) -> AccountsReceivableAgeingReport:
+    return accounts_receivable_ageing(db)

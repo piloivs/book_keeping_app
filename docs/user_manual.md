@@ -1,4 +1,4 @@
-# Bookkeeping App User Manual
+# IntelliArtAI Operations Core User Manual
 
 ## Current Version
 
@@ -56,31 +56,49 @@ The top summary cards show:
 
 Use the refresh button in the top-right corner to reload data from the backend.
 
-The main navigation tabs are:
+The main navigation tabs are organized by business module:
 
-- Dashboard: account balances, operational queue, and recent journal entries.
-- Transactions: daily income and expense capture.
-- Purchasing: vendor purchase order creation, issuance, and cancellation.
-- Payroll: salary runs, CPF withholding, employer CPF, and payroll posting.
-- Employees: staff master records, current salary, and CPF profile.
-- Contacts: customers and vendors.
+- Dashboard: read-only operating overview, A/R ageing, operational queue, read-only chart of accounts, and recent journal entries.
+- Finance: daily income and expense capture, posted transactions, and receipt extraction.
+- Sales: customer master records, sales invoices, customer receipts, client purchase orders, and client history.
+- Purchasing: vendor master records, vendor qualification, purchase orders, issuance, and cancellation.
+- HR & Payroll: employee master records, salary runs, CPF withholding, employer CPF, payroll posting, and payslip printing.
 - Reports: current profit and loss and balance sheet views.
-- Settings: company profile and reporting defaults.
+- Settings: company profile, reporting defaults, and controlled chart-of-accounts setup.
 
 ## Chart of Accounts
 
-The chart of accounts lists the accounts currently available for transactions.
+The dashboard shows the chart of accounts as a read-only reference because accounts are fundamental to the ledger and internal app workflows.
+
+Chart-of-accounts setup tools are in Settings under Chart of Accounts Setup. From there you can:
+
+- Download a default template.
+- Export the current chart as a CSV backup.
+- Import additional accounts with Add Only mode.
+- Replace the setup chart with Setup Replace mode when the app still allows it.
+- Print the chart.
+
+Add Only is a CSV import mode. It does not manually add a single account when clicked. It adds only account codes that are not already in the app and skips matching existing codes.
+
+Setup Replace can replace the full chart from an imported CSV. Use it only during initial setup. The app blocks setup replacement after accounts are used by transactions, documents, payroll, contacts, or journal lines.
+
+Both Add Only and Setup Replace ask for confirmation when selected. CSV imports are also validated before the app imports them.
 
 Default accounts include:
 
 - 1000 Cash
+- 1010 Bank Account
 - 1100 Accounts Receivable
 - 2000 Accounts Payable
 - 2100 CPF Payable
+- 2150 Deferred Revenue
 - 3000 Owner Equity
+- 3900 Retained Earnings
 - 4000 Sales Revenue
+- 4100 Consulting Revenue
 - 5000 Office Supplies
 - 5100 Software Expense
+- 5200 Professional Fees
 - 5300 Salaries and Wages
 - 5310 Employer CPF Expense
 
@@ -88,11 +106,11 @@ Each account has a type and a current balance.
 
 ## Add an Income or Expense Transaction
 
-Use the Transactions tab to record day-to-day business activity.
+Use the Finance tab to record day-to-day business activity.
 
 Transaction fields:
 
-- Type: Expense or Income.
+- Type: Expense or Income. Deposit transactions can also appear when a paid sales order deposit is posted from the Sales tab.
 - Status: Draft, Reviewed, or Posted.
 - Date: transaction date.
 - Description: short explanation.
@@ -112,6 +130,11 @@ For income:
 - Debit a cash/bank or receivable account.
 - Credit a revenue account.
 
+For paid sales order deposits:
+
+- Debit Bank Account.
+- Credit Deferred Revenue.
+
 Only Posted transactions affect the ledger and reports. Draft and Reviewed transactions are saved in the operational queue but do not update account balances until posted.
 
 Receipt files are stored locally under:
@@ -126,11 +149,34 @@ Click Extract beside a receipt-backed transaction to run local Tesseract OCR and
 
 Receipt extraction currently supports image uploads such as JPG, PNG, or TIFF. It is meant to speed up data entry, not replace review. Check extracted totals and line descriptions before relying on them.
 
-## Payroll
+## HR & Payroll
 
-Use the Payroll tab to record staff salary payments and CPF.
+Use the HR & Payroll tab to maintain employee records and record staff salary payments and CPF.
 
-If the employee already exists in the Employees tab, choose the employee from the Employee field. The payroll form will fill in the employee name, current monthly salary, CPF subject wage, and CPF rates from the employee record. You can still edit the payroll run before saving.
+If the employee already exists in the Employee Master section, choose the employee from the Employee field. The payroll form will fill in the employee name, current monthly salary, CPF subject wage, and CPF rates from the employee record. You can still edit the payroll run before saving.
+
+Employee fields:
+
+- Staff ID.
+- Status: Active or Inactive.
+- Name.
+- Job Title.
+- Email.
+- Phone.
+- Start Date.
+- Current Monthly Salary.
+- CPF Profile.
+- Employee CPF %.
+- Employer CPF %.
+- Notes.
+
+CPF Profile options:
+
+- SC / 3rd-year PR, 55 and below: defaults to 20% employee CPF and 17% employer CPF.
+- Custom rates: lets you enter CPF percentages manually.
+- Not applicable: sets CPF percentages to 0%.
+
+The current version stores the employee's current salary directly on the employee record. A future salary history feature should be added before using this for long-term historical payroll records with salary changes.
 
 Payroll fields:
 
@@ -179,7 +225,19 @@ The salary slip includes the employer name, employee name, pay date, salary peri
 
 Use the Purchasing tab to prepare and issue purchase orders to vendors.
 
-Before issuing a PO, create the vendor in Contacts and set Vendor Qualification to Qualified. The app lets you create draft POs for vendor contacts that are still pending, but it blocks issuing POs unless the vendor is qualified.
+Before issuing a PO, create the vendor in the Vendor Master section and set Vendor Qualification to Qualified. The app lets you create draft POs for vendor contacts that are still pending, but it blocks issuing POs unless the vendor is qualified.
+
+Vendor master fields:
+
+- Name.
+- Email.
+- Phone.
+- Tax Identifier.
+- Default Payment Terms.
+- Vendor Qualification: Pending, Qualified, Suspended, or Rejected.
+- Default Expense Account.
+- Qualification Expiry.
+- Qualification Notes.
 
 Purchase order fields:
 
@@ -198,32 +256,94 @@ PO statuses currently supported by the backend are draft, issued, partially rece
 
 Purchase orders do not affect the ledger or reports yet. They represent a purchasing commitment. Accounting should happen later when a supplier invoice or bill is recorded from the PO.
 
-## Employees
+## Sales
 
-Use the Employees tab to store staff information used by payroll.
+Use the Sales tab to issue customer invoices, record customer receipts, and capture purchase orders received from clients.
 
-Employee fields:
+Before creating sales records, create the customer in the Customer Master section.
 
-- Staff ID.
-- Status: Active or Inactive.
+Customer master fields:
+
 - Name.
-- Job Title.
 - Email.
 - Phone.
-- Start Date.
-- Current Monthly Salary.
-- CPF Profile.
-- Employee CPF %.
-- Employer CPF %.
+- Tax Identifier.
+- Default Payment Terms.
+
+### Sales Invoices
+
+Use Create Invoice to record formal customer invoices. If you save an invoice as Issued, the app posts it to the ledger immediately:
+
+- Debit Accounts Receivable.
+- Credit the selected revenue account or accounts.
+- Credit GST Output Tax when invoice line tax is present.
+
+Invoice fields:
+
+- Status: Issue Now or Draft.
+- Invoice No.: optional. If blank, the app generates a number such as `INV-202606-0001`.
+- Customer.
+- Optional linked client PO.
+- Issue Date.
+- Due Date.
+- Currency.
+- Payment Terms.
+- Line descriptions, quantities, unit prices, tax amounts, and revenue accounts.
 - Notes.
 
-CPF Profile options:
+Draft invoices do not affect the ledger until you click Issue.
 
-- SC / 3rd-year PR, 55 and below: defaults to 20% employee CPF and 17% employer CPF.
-- Custom rates: lets you enter CPF percentages manually.
-- Not applicable: sets CPF percentages to 0%.
+### Customer Receipts
 
-The current version stores the employee's current salary directly on the employee record. A future salary history feature should be added before using this for long-term historical payroll records with salary changes.
+Use Record Receipt to post customer payments against open invoices. Receipts must be allocated to an issued invoice. Posted customer receipts create this ledger entry:
+
+- Debit Bank Account.
+- Credit Accounts Receivable.
+
+Receipt fields:
+
+- Customer.
+- Open invoice.
+- Receipt No.: optional. If blank, the app generates a number such as `REC-202606-0001`.
+- Receipt Date.
+- Amount.
+- Bank Account.
+- Reference.
+- Notes.
+
+The invoice status updates to Partially Paid or Paid after the receipt is posted.
+
+### Client Purchase Orders
+
+The Sales tab can also capture purchase orders received from clients. The app records the customer's PO number and generates an internal sales order number if you leave Sales Order blank.
+
+Client PO fields:
+
+- Status: Draft, Received, or Accepted.
+- Sales Order: optional. If blank, the app generates a number such as `SO-202606-0001`.
+- Client PO Number: the customer's own PO reference.
+- Customer.
+- Received Date.
+- Expected Delivery.
+- Currency.
+- Payment Terms.
+- Deposit Required, with 5%, 10%, or custom deposit amount.
+- Deposit Due date.
+- Deposit Status: Requested, Invoiced, Paid, or Applied.
+- Line descriptions, quantities, unit prices, tax amounts, and revenue accounts.
+- Delivery Instructions.
+- Notes.
+
+The current browser workflow supports creating client POs, accepting draft or received client POs, and cancelling open client POs. Deposits marked Requested or Invoiced are tracked as commercial terms only. Deposits marked Paid create a posted deposit transaction.
+
+Paid deposits are treated as advance payments and posted to Deferred Revenue until the related work is earned:
+
+- Debit Bank Account.
+- Credit Deferred Revenue.
+
+After a paid deposit is saved, it appears in Finance as a posted deposit transaction and affects Dashboard cash and Balance Sheet liabilities. It does not increase revenue or net income.
+
+Revenue recognition and application of deposits to milestones should happen later when milestone invoicing and revenue workflows are added.
 
 ## Manual Journal Entries
 
@@ -265,28 +385,6 @@ Total debits = Total credits
 
 The current prototype form creates a simple two-line balanced entry: one debit and one credit for the same amount.
 
-## Contacts
-
-Use the Contacts tab to add customers and vendors.
-
-Supported contact types:
-
-- Customer
-- Vendor
-- Both
-
-Contacts can be attached to income and expense transactions.
-
-Vendor contacts also include qualification details used by Purchasing:
-
-- Vendor Qualification: Pending, Qualified, Suspended, or Rejected.
-- Default Payment Terms.
-- Default Expense Account.
-- Qualification Expiry.
-- Qualification Notes.
-
-Only qualified vendor contacts can receive issued purchase orders.
-
 ## Reports
 
 The Reports tab currently includes:
@@ -304,6 +402,8 @@ Use the Settings tab to maintain:
 - Registration number
 - Fiscal year start month
 - Base currency
+
+Settings also contains Chart of Accounts Setup. This is intentionally separate from the dashboard because changing accounts affects transaction posting, reporting, and future workflows.
 
 ## Troubleshooting
 
@@ -354,9 +454,10 @@ Do not manually edit this file while the app is running.
 This prototype does not yet include:
 
 - User login
-- Invoices and bills
+- Supplier bills
 - Bank imports and reconciliation
 - Document preview/download from the UI
 - PO receiving and PO-to-bill matching
+- Milestone billing, deposit application, and deferred revenue release
 - Formal financial statement screens
 - Multi-user permissions
