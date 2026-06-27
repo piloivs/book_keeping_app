@@ -17,6 +17,8 @@ from .models import (
     PurchaseOrderLine,
     SalesInvoiceLine,
     SalesOrderLine,
+    SupplierBillLine,
+    SupplierPayment,
 )
 from .schemas import (
     ChartOfAccountsImportResult,
@@ -36,6 +38,7 @@ DEFAULT_ACCOUNTS = [
     ("2100", "CPF Payable", AccountType.LIABILITY, "CPF contributions payable to CPF Board"),
     ("2150", "Deferred Revenue", AccountType.LIABILITY, "Customer deposits and advance payments"),
     ("2200", "GST Output Tax", AccountType.LIABILITY, "GST collected on customer invoices"),
+    ("2210", "GST Input Tax", AccountType.ASSET, "Recoverable GST paid on supplier bills"),
     ("3000", "Owner Equity", AccountType.EQUITY, "Owner investment and retained earnings"),
     ("3900", "Retained Earnings", AccountType.EQUITY, "Accumulated prior-year earnings"),
     ("4000", "Sales Revenue", AccountType.REVENUE, "Income from sales"),
@@ -107,6 +110,8 @@ def account_references_exist(db: Session) -> bool:
         select(func.count()).select_from(PurchaseOrderLine),
         select(func.count()).select_from(SalesOrderLine),
         select(func.count()).select_from(SalesInvoiceLine),
+        select(func.count()).select_from(SupplierBillLine),
+        select(func.count()).select_from(SupplierPayment),
         select(func.count()).select_from(CustomerReceipt),
         select(func.count()).select_from(Contact).where(Contact.default_expense_account_id.is_not(None)),
     ]
@@ -413,6 +418,42 @@ def create_journal_entry(db: Session, payload: JournalEntryCreate, *, commit: bo
         db.flush()
     db.refresh(entry)
     return entry
+
+
+def reverse_journal_entry(
+    db: Session,
+    entry_id: int,
+    *,
+    reversal_date,
+    memo: str | None = None,
+    commit: bool = True,
+) -> JournalEntry:
+    original = db.scalar(entry_query().where(JournalEntry.id == entry_id))
+    if original is None:
+        raise ValueError(f"Unknown journal entry id: {entry_id}")
+
+    reversal = create_journal_entry(
+        db,
+        JournalEntryCreate(
+            entry_date=reversal_date,
+            memo=memo or f"Reversal of journal entry {original.id}: {original.memo}",
+            reference=f"REV-{original.id}",
+            lines=[
+                {
+                    "account_id": line.account_id,
+                    "debit": line.credit,
+                    "credit": line.debit,
+                    "description": f"Reversal of line {line.id}",
+                }
+                for line in original.lines
+            ],
+        ),
+        commit=False,
+    )
+    if commit:
+        db.commit()
+        db.refresh(reversal)
+    return reversal
 
 
 def entry_query() -> Select[tuple[JournalEntry]]:

@@ -18,7 +18,12 @@ import {
 } from "lucide-react";
 import {
   Account,
+  AccountsPayableAgeing,
   AccountsReceivableAgeing,
+  ApprovalRequest,
+  AuditEvent,
+  BankStatementLine,
+  BankStatementLinePayload,
   BalanceSheet,
   ChartOfAccountsImportMode,
   ChartOfAccountsValidationResult,
@@ -40,6 +45,9 @@ import {
   PayrollRun,
   PayrollRunPayload,
   PayrollStatus,
+  Project,
+  ProjectPayload,
+  ProjectProfitability,
   ProfitAndLoss,
   PurchaseOrder,
   PurchaseOrderPayload,
@@ -51,6 +59,12 @@ import {
   SalesInvoicePayload,
   SalesInvoiceStatus,
   Summary,
+  SupplierBill,
+  SupplierBillPayload,
+  SupplierBillStatus,
+  SupplierPayment,
+  SupplierPaymentPayload,
+  SupplierPaymentStatus,
   TransactionKind,
   TransactionStatus,
   VendorQualificationStatus,
@@ -63,7 +77,7 @@ const money = new Intl.NumberFormat("en-SG", {
   currency: "SGD"
 });
 
-type View = "dashboard" | "finance" | "sales" | "purchasing" | "hrPayroll" | "reports" | "settings";
+type View = "dashboard" | "finance" | "sales" | "projects" | "purchasing" | "hrPayroll" | "reports" | "settings";
 
 function formatMoney(value: string | number) {
   return money.format(Number(value));
@@ -86,16 +100,24 @@ function App() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [settings, setSettings] = useState<CompanySettings | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [transactions, setTransactions] = useState<OperationalTransaction[]>([]);
   const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
   const [salesInvoices, setSalesInvoices] = useState<SalesInvoice[]>([]);
   const [customerReceipts, setCustomerReceipts] = useState<CustomerReceipt[]>([]);
   const [clientHistory, setClientHistory] = useState<ClientHistory | null>(null);
+  const [projectProfitability, setProjectProfitability] = useState<ProjectProfitability | null>(null);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
+  const [supplierBills, setSupplierBills] = useState<SupplierBill[]>([]);
+  const [supplierPayments, setSupplierPayments] = useState<SupplierPayment[]>([]);
   const [payrollRuns, setPayrollRuns] = useState<PayrollRun[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [arAgeing, setArAgeing] = useState<AccountsReceivableAgeing | null>(null);
+  const [apAgeing, setApAgeing] = useState<AccountsPayableAgeing | null>(null);
+  const [bankStatementLines, setBankStatementLines] = useState<BankStatementLine[]>([]);
+  const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [profitAndLoss, setProfitAndLoss] = useState<ProfitAndLoss | null>(null);
   const [balanceSheet, setBalanceSheet] = useState<BalanceSheet | null>(null);
@@ -106,21 +128,29 @@ function App() {
     setLoading(true);
     setError(null);
     try {
-      const [accountData, settingsData, contactData, employeeData, transactionData, salesOrderData, salesInvoiceData, customerReceiptData, clientHistoryData, purchaseOrderData, payrollData, summaryData, arAgeingData, entryData, pnlData, bsData] =
+      const [accountData, settingsData, contactData, projectData, employeeData, transactionData, salesOrderData, salesInvoiceData, customerReceiptData, clientHistoryData, projectProfitabilityData, purchaseOrderData, supplierBillData, supplierPaymentData, payrollData, summaryData, arAgeingData, apAgeingData, bankStatementLineData, approvalRequestData, auditEventData, entryData, pnlData, bsData] =
         await Promise.all([
           api.accounts(),
           api.companySettings(),
           api.contacts(),
+          api.projects(),
           api.employees(),
           api.transactions(),
           api.salesOrders(),
           api.salesInvoices(),
           api.customerReceipts(),
           api.clientHistory(),
+          api.projectProfitability(),
           api.purchaseOrders(),
+          api.supplierBills(),
+          api.supplierPayments(),
           api.payroll(),
           api.summary(),
           api.accountsReceivableAgeing(),
+          api.accountsPayableAgeing(),
+          api.bankStatementLines(),
+          api.approvalRequests(),
+          api.auditEvents(),
           api.journalEntries(),
           api.profitAndLoss(),
           api.balanceSheet()
@@ -128,16 +158,24 @@ function App() {
       setAccounts(accountData);
       setSettings(settingsData);
       setContacts(contactData);
+      setProjects(projectData);
       setEmployees(employeeData);
       setTransactions(transactionData);
       setSalesOrders(salesOrderData);
       setSalesInvoices(salesInvoiceData);
       setCustomerReceipts(customerReceiptData);
       setClientHistory(clientHistoryData);
+      setProjectProfitability(projectProfitabilityData);
       setPurchaseOrders(purchaseOrderData);
+      setSupplierBills(supplierBillData);
+      setSupplierPayments(supplierPaymentData);
       setPayrollRuns(payrollData);
       setSummary(summaryData);
       setArAgeing(arAgeingData);
+      setApAgeing(apAgeingData);
+      setBankStatementLines(bankStatementLineData);
+      setApprovalRequests(approvalRequestData);
+      setAuditEvents(auditEventData);
       setEntries(entryData);
       setProfitAndLoss(pnlData);
       setBalanceSheet(bsData);
@@ -168,6 +206,7 @@ function App() {
         <TabButton active={view === "dashboard"} icon={<CircleDollarSign size={16} />} label="Dashboard" onClick={() => setView("dashboard")} />
         <TabButton active={view === "finance"} icon={<Landmark size={16} />} label="Finance" onClick={() => setView("finance")} />
         <TabButton active={view === "sales"} icon={<ArrowDownUp size={16} />} label="Sales" onClick={() => setView("sales")} />
+        <TabButton active={view === "projects"} icon={<Building2 size={16} />} label="Projects" onClick={() => setView("projects")} />
         <TabButton active={view === "purchasing"} icon={<ClipboardList size={16} />} label="Purchasing" onClick={() => setView("purchasing")} />
         <TabButton active={view === "hrPayroll"} icon={<Users size={16} />} label="HR & Payroll" onClick={() => setView("hrPayroll")} />
         <TabButton active={view === "reports"} icon={<BookOpenCheck size={16} />} label="Reports" onClick={() => setView("reports")} />
@@ -179,18 +218,24 @@ function App() {
       {view === "dashboard" ? (
         <DashboardView
           accounts={accounts}
+          apAgeing={apAgeing}
+          approvalRequests={approvalRequests}
           arAgeing={arAgeing}
           entries={entries}
           loading={loading}
           summary={summary}
           transactions={transactions}
+          onChanged={() => void loadData()}
         />
       ) : null}
       {view === "finance" ? (
         <FinanceView
           accounts={accounts}
+          bankStatementLines={bankStatementLines}
           contacts={contacts}
+          entries={entries}
           loading={loading}
+          projects={projects}
           transactions={transactions}
           onChanged={() => void loadData()}
         />
@@ -202,8 +247,18 @@ function App() {
           customerReceipts={customerReceipts}
           clientHistory={clientHistory}
           loading={loading}
+          projects={projects}
           salesInvoices={salesInvoices}
           salesOrders={salesOrders}
+          onChanged={() => void loadData()}
+        />
+      ) : null}
+      {view === "projects" ? (
+        <ProjectsView
+          contacts={contacts}
+          loading={loading}
+          projects={projects}
+          projectProfitability={projectProfitability}
           onChanged={() => void loadData()}
         />
       ) : null}
@@ -213,6 +268,10 @@ function App() {
           contacts={contacts}
           loading={loading}
           purchaseOrders={purchaseOrders}
+          projects={projects}
+          supplierBills={supplierBills}
+          supplierPayments={supplierPayments}
+          approvalRequests={approvalRequests}
           onChanged={() => void loadData()}
         />
       ) : null}
@@ -227,7 +286,7 @@ function App() {
         />
       ) : null}
       {view === "reports" ? (
-        <ReportsView balanceSheet={balanceSheet} loading={loading} profitAndLoss={profitAndLoss} />
+        <ReportsView auditEvents={auditEvents} balanceSheet={balanceSheet} loading={loading} profitAndLoss={profitAndLoss} />
       ) : null}
       {view === "settings" && settings ? <SettingsView accounts={accounts} loading={loading} settings={settings} onChanged={() => void loadData()} /> : null}
     </main>
@@ -245,18 +304,24 @@ function TabButton({ active, icon, label, onClick }: { active: boolean; icon: Re
 
 function DashboardView({
   accounts,
+  apAgeing,
+  approvalRequests,
   arAgeing,
   entries,
   loading,
   summary,
-  transactions
+  transactions,
+  onChanged
 }: {
   accounts: Account[];
+  apAgeing: AccountsPayableAgeing | null;
+  approvalRequests: ApprovalRequest[];
   arAgeing: AccountsReceivableAgeing | null;
   entries: JournalEntry[];
   loading: boolean;
   summary: Summary | null;
   transactions: OperationalTransaction[];
+  onChanged: () => void;
 }) {
   return (
     <>
@@ -267,7 +332,11 @@ function DashboardView({
         <Metric icon={<BookOpenCheck size={20} />} label="Net income" value={summary?.net_income ?? "0"} />
       </section>
 
-      <AccountsReceivableAgeingPanel ageing={arAgeing} loading={loading} />
+      <div className="workspace">
+        <AccountsReceivableAgeingPanel ageing={arAgeing} loading={loading} />
+        <AccountsPayableAgeingPanel ageing={apAgeing} loading={loading} />
+      </div>
+      <ApprovalQueuePanel approvalRequests={approvalRequests} loading={loading} onChanged={onChanged} />
 
       <div className="workspace">
         <section className="panel">
@@ -449,6 +518,64 @@ function ValidationIssueList({ title, items }: { title: string; items: string[] 
   );
 }
 
+function ApprovalQueuePanel({ approvalRequests, loading, onChanged }: { approvalRequests: ApprovalRequest[]; loading: boolean; onChanged: () => void }) {
+  const [message, setMessage] = useState<string | null>(null);
+  const pending = approvalRequests.filter((request) => request.status === "pending");
+  if (loading) return <section className="panel empty">Loading approval queue...</section>;
+
+  async function decide(id: number, approved: boolean) {
+    setMessage(null);
+    try {
+      if (approved) {
+        await api.approveRequest(id, { decided_by: "IntelliArtAI" });
+      } else {
+        await api.rejectRequest(id, { decided_by: "IntelliArtAI" });
+      }
+      onChanged();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Unable to update approval request.");
+    }
+  }
+
+  return (
+    <section className="panel">
+      <div className="panelHeader">
+        <h2>Approval Queue</h2>
+        <span>{pending.length} pending</span>
+      </div>
+      {message ? <p className="formMessage">{message}</p> : null}
+      {!pending.length ? <div className="empty">No pending approvals.</div> : null}
+      {pending.length ? (
+        <div className="entryList">
+          {pending.map((request) => (
+            <article className="entry" key={request.id}>
+              <div className="entryHeader">
+                <div>
+                  <strong>{request.document_type.replace(/_/g, " ")} #{request.document_id}</strong>
+                  <span>
+                    {request.action} requested {request.requested_at.slice(0, 10)}
+                  </span>
+                </div>
+                <span>{request.status}</span>
+              </div>
+              <div className="transactionMeta purchaseMeta">
+                <span>{request.requested_by ?? "Unassigned requester"}</span>
+                <span>{request.reason ?? "No reason provided"}</span>
+                <button className="smallButton" onClick={() => void decide(request.id, false)} type="button">
+                  Reject
+                </button>
+                <button className="smallButton" onClick={() => void decide(request.id, true)} type="button">
+                  Approve
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function AccountsReceivableAgeingPanel({ ageing, loading }: { ageing: AccountsReceivableAgeing | null; loading: boolean }) {
   if (loading) return <section className="panel empty">Loading A/R ageing...</section>;
   const buckets = [
@@ -509,6 +636,66 @@ function AccountsReceivableAgeingPanel({ ageing, loading }: { ageing: AccountsRe
   );
 }
 
+function AccountsPayableAgeingPanel({ ageing, loading }: { ageing: AccountsPayableAgeing | null; loading: boolean }) {
+  if (loading) return <section className="panel empty">Loading A/P ageing...</section>;
+  const buckets = [
+    { label: "0-30", value: ageing?.current ?? "0" },
+    { label: "31-60", value: ageing?.days_31_60 ?? "0" },
+    { label: "61-90", value: ageing?.days_61_90 ?? "0" },
+    { label: "90+", value: ageing?.days_over_90 ?? "0" }
+  ];
+  return (
+    <section className="panel arAgeingPanel">
+      <div className="panelHeader">
+        <h2>A/P Ageing</h2>
+        <span>As of {ageing?.as_of ?? today()}</span>
+      </div>
+      <div className="ageingSummary" aria-label="Accounts payable ageing buckets">
+        {buckets.map((bucket) => (
+          <div className="ageingBucket" key={bucket.label}>
+            <span>{bucket.label}</span>
+            <strong>{formatMoney(bucket.value)}</strong>
+          </div>
+        ))}
+        <div className="ageingBucket total">
+          <span>Total</span>
+          <strong>{formatMoney(ageing?.total ?? "0")}</strong>
+        </div>
+      </div>
+      {ageing?.rows.length ? (
+        <div className="tableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Vendor</th>
+                <th className="number">0-30</th>
+                <th className="number">31-60</th>
+                <th className="number">61-90</th>
+                <th className="number">90+</th>
+                <th className="number">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ageing.rows.map((row) => (
+                <tr key={`${row.vendor_id ?? "unassigned"}-${row.vendor_name}`}>
+                  <td>{row.vendor_name}</td>
+                  <td className="number">{formatMoney(row.current)}</td>
+                  <td className="number">{formatMoney(row.days_31_60)}</td>
+                  <td className="number">{formatMoney(row.days_61_90)}</td>
+                  <td className="number">{formatMoney(row.days_over_90)}</td>
+                  <td className="number">{formatMoney(row.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="empty">No open payables yet.</div>
+      )}
+    </section>
+  );
+}
+
 function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
     <article className="metric">
@@ -523,32 +710,243 @@ function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; 
 
 function FinanceView({
   accounts,
+  bankStatementLines,
   contacts,
+  entries,
   loading,
+  projects,
   transactions,
   onChanged
 }: {
   accounts: Account[];
+  bankStatementLines: BankStatementLine[];
   contacts: Contact[];
+  entries: JournalEntry[];
   loading: boolean;
+  projects: Project[];
   transactions: OperationalTransaction[];
   onChanged: () => void;
 }) {
   return (
-    <div className="workspace">
-      <TransactionCaptureForm accounts={accounts} contacts={contacts} onCreated={onChanged} />
-      <section className="panel">
-        <div className="panelHeader">
-          <h2>Income & Expenses</h2>
-          <span>{transactions.length} records</span>
-        </div>
-        <TransactionList loading={loading} transactions={transactions} onPost={onChanged} />
-      </section>
-    </div>
+    <>
+      <div className="workspace">
+        <TransactionCaptureForm accounts={accounts} contacts={contacts} projects={projects} onCreated={onChanged} />
+        <section className="panel">
+          <div className="panelHeader">
+            <h2>Income & Expenses</h2>
+            <span>{transactions.length} records</span>
+          </div>
+          <TransactionList loading={loading} transactions={transactions} onPost={onChanged} />
+        </section>
+      </div>
+      <BankReconciliationPanel accounts={accounts} bankStatementLines={bankStatementLines} entries={entries} loading={loading} onChanged={onChanged} />
+    </>
   );
 }
 
-function TransactionCaptureForm({ accounts, contacts, onCreated }: { accounts: Account[]; contacts: Contact[]; onCreated: () => void }) {
+function BankReconciliationPanel({
+  accounts,
+  bankStatementLines,
+  entries,
+  loading,
+  onChanged
+}: {
+  accounts: Account[];
+  bankStatementLines: BankStatementLine[];
+  entries: JournalEntry[];
+  loading: boolean;
+  onChanged: () => void;
+}) {
+  const bankAccounts = accounts.filter((account) => account.type === "asset");
+  const firstBankId = bankAccounts.find((account) => account.code === "1010")?.id ?? bankAccounts[0]?.id ?? "";
+  const [bankAccountId, setBankAccountId] = useState<number | "">(firstBankId);
+  const [statementDate, setStatementDate] = useState(today());
+  const [description, setDescription] = useState("Bank statement line");
+  const [reference, setReference] = useState("");
+  const [amount, setAmount] = useState("0.00");
+  const [notes, setNotes] = useState("");
+  const [journalEntryByLine, setJournalEntryByLine] = useState<Record<number, number | "">>({});
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!firstBankId || bankAccountId !== "") return;
+    setBankAccountId(firstBankId);
+  }, [firstBankId, bankAccountId]);
+
+  const selectedLines = bankStatementLines.filter((line) => bankAccountId === "" || line.bank_account.id === bankAccountId);
+  const statementTotal = selectedLines.reduce((sum, line) => sum + Number(line.amount), 0);
+  const reconciledTotal = selectedLines.filter((line) => line.status === "reconciled").reduce((sum, line) => sum + Number(line.amount), 0);
+  const canSave = Boolean(bankAccountId && statementDate && description && Number(amount) !== 0);
+
+  function bankMovement(entry: JournalEntry, accountId: number | "") {
+    if (accountId === "") return 0;
+    return entry.lines
+      .filter((line) => line.account_id === accountId)
+      .reduce((sum, line) => sum + Number(line.debit) - Number(line.credit), 0);
+  }
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canSave || bankAccountId === "") return;
+    const payload: BankStatementLinePayload = {
+      bank_account_id: bankAccountId,
+      statement_date: statementDate,
+      description,
+      reference: reference || undefined,
+      amount,
+      notes: notes || undefined
+    };
+    setMessage(null);
+    try {
+      await api.createBankStatementLine(payload);
+      setReference("");
+      setAmount("0.00");
+      setNotes("");
+      setMessage("Bank statement line saved.");
+      onChanged();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Unable to save bank statement line.");
+    }
+  }
+
+  async function reconcile(lineId: number) {
+    const entryId = journalEntryByLine[lineId];
+    if (!entryId) return;
+    setMessage(null);
+    try {
+      await api.reconcileBankStatementLine(lineId, Number(entryId));
+      onChanged();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Unable to reconcile statement line.");
+    }
+  }
+
+  async function unreconcile(lineId: number) {
+    setMessage(null);
+    try {
+      await api.unreconcileBankStatementLine(lineId);
+      onChanged();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Unable to unreconcile statement line.");
+    }
+  }
+
+  return (
+    <section className="panel">
+      <div className="panelHeader">
+        <h2>Bank Reconciliation</h2>
+        <span>{selectedLines.filter((line) => line.status === "unmatched").length} unmatched</span>
+      </div>
+      <form className="transactionForm" onSubmit={(event) => void submit(event)}>
+        <div className="formGrid">
+          <label>
+            Bank Account
+            <select value={bankAccountId} onChange={(event) => setBankAccountId(event.target.value ? Number(event.target.value) : "")}>
+              <option value="">All bank accounts</option>
+              {bankAccounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.code} {account.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Statement Date
+            <input type="date" value={statementDate} onChange={(event) => setStatementDate(event.target.value)} />
+          </label>
+        </div>
+        <div className="formGrid">
+          <label>
+            Description
+            <input value={description} onChange={(event) => setDescription(event.target.value)} />
+          </label>
+          <label>
+            Reference
+            <input value={reference} onChange={(event) => setReference(event.target.value)} />
+          </label>
+        </div>
+        <div className="formGrid">
+          <label>
+            Amount
+            <input step="0.01" type="number" value={amount} onChange={(event) => setAmount(event.target.value)} />
+          </label>
+          <label>
+            Notes
+            <input value={notes} onChange={(event) => setNotes(event.target.value)} />
+          </label>
+        </div>
+        <button className="primaryButton" disabled={!canSave} type="submit">
+          <Plus size={18} />
+          Add Statement Line
+        </button>
+        {message ? <p className="formMessage">{message}</p> : null}
+      </form>
+
+      <div className="ageingSummary" aria-label="Bank reconciliation totals">
+        <div className="ageingBucket">
+          <span>Statement</span>
+          <strong>{formatMoney(statementTotal)}</strong>
+        </div>
+        <div className="ageingBucket">
+          <span>Reconciled</span>
+          <strong>{formatMoney(reconciledTotal)}</strong>
+        </div>
+        <div className="ageingBucket total">
+          <span>Open</span>
+          <strong>{formatMoney(statementTotal - reconciledTotal)}</strong>
+        </div>
+      </div>
+
+      {loading ? <div className="empty">Loading statement lines...</div> : null}
+      {!loading && !selectedLines.length ? <div className="empty">No bank statement lines yet.</div> : null}
+      {selectedLines.length ? (
+        <div className="entryList">
+          {selectedLines.map((line) => {
+            const candidates = entries.filter((entry) => bankMovement(entry, line.bank_account.id) === Number(line.amount));
+            return (
+              <article className="entry" key={line.id}>
+                <div className="entryHeader">
+                  <div>
+                    <strong>{line.description}</strong>
+                    <span>
+                      {line.statement_date} - {line.status}
+                    </span>
+                  </div>
+                  <span>{formatMoney(line.amount)}</span>
+                </div>
+                <div className="transactionMeta purchaseMeta">
+                  <span>{line.bank_account.code} {line.bank_account.name}</span>
+                  <span>{line.reference ?? "No reference"}</span>
+                  {line.status === "reconciled" ? (
+                    <button className="smallButton" onClick={() => void unreconcile(line.id)} type="button">
+                      Unreconcile
+                    </button>
+                  ) : (
+                    <>
+                      <select value={journalEntryByLine[line.id] ?? ""} onChange={(event) => setJournalEntryByLine((current) => ({ ...current, [line.id]: event.target.value ? Number(event.target.value) : "" }))}>
+                        <option value="">Select journal entry</option>
+                        {candidates.map((entry) => (
+                          <option key={entry.id} value={entry.id}>
+                            #{entry.id} {entry.entry_date} {entry.memo}
+                          </option>
+                        ))}
+                      </select>
+                      <button className="smallButton" disabled={!journalEntryByLine[line.id]} onClick={() => void reconcile(line.id)} type="button">
+                        Reconcile
+                      </button>
+                    </>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function TransactionCaptureForm({ accounts, contacts, projects, onCreated }: { accounts: Account[]; contacts: Contact[]; projects: Project[]; onCreated: () => void }) {
   const [kind, setKind] = useState<TransactionKind>("expense");
   const [status, setStatus] = useState<TransactionStatus>("posted");
   const [transactionDate, setTransactionDate] = useState(today());
@@ -556,6 +954,7 @@ function TransactionCaptureForm({ accounts, contacts, onCreated }: { accounts: A
   const [reference, setReference] = useState("");
   const [amount, setAmount] = useState("100.00");
   const [contactId, setContactId] = useState<number | "">("");
+  const [projectId, setProjectId] = useState<number | "">("");
   const [debitAccountId, setDebitAccountId] = useState<number | "">("");
   const [creditAccountId, setCreditAccountId] = useState<number | "">("");
   const [receipt, setReceipt] = useState<File | null>(null);
@@ -606,6 +1005,7 @@ function TransactionCaptureForm({ accounts, contacts, onCreated }: { accounts: A
       reference: reference || undefined,
       amount,
       contact_id: contactId === "" ? undefined : contactId,
+      project_id: projectId === "" ? undefined : projectId,
       debit_account_id: debitAccountId,
       credit_account_id: creditAccountId,
       receipt: receipt ? await receiptPayload(receipt) : undefined
@@ -669,6 +1069,17 @@ function TransactionCaptureForm({ accounts, contacts, onCreated }: { accounts: A
           </select>
         </label>
         <label>
+          Project
+          <select value={projectId} onChange={(event) => setProjectId(event.target.value ? Number(event.target.value) : "")}>
+            <option value="">None</option>
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.project_code} {project.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
           Reference
           <input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Invoice, receipt, or bank ref" />
         </label>
@@ -718,6 +1129,11 @@ type PurchaseOrderDraftLine = {
   expense_account_id: number | "";
 };
 
+type SupplierPaymentDraftAllocation = {
+  bill_id: number | "";
+  amount: string;
+};
+
 type SalesOrderDraftLine = {
   description: string;
   quantity: string;
@@ -732,6 +1148,7 @@ function SalesView({
   customerReceipts,
   clientHistory,
   loading,
+  projects,
   salesInvoices,
   salesOrders,
   onChanged
@@ -741,6 +1158,7 @@ function SalesView({
   customerReceipts: CustomerReceipt[];
   clientHistory: ClientHistory | null;
   loading: boolean;
+  projects: Project[];
   salesInvoices: SalesInvoice[];
   salesOrders: SalesOrder[];
   onChanged: () => void;
@@ -760,7 +1178,7 @@ function SalesView({
         </section>
       </div>
       <div className="workspace">
-        <SalesInvoiceForm accounts={accounts} contacts={contacts} salesOrders={salesOrders} onCreated={onChanged} />
+        <SalesInvoiceForm accounts={accounts} contacts={contacts} projects={projects} salesOrders={salesOrders} onCreated={onChanged} />
         <section className="panel">
           <div className="panelHeader">
             <h2>Sales Invoices</h2>
@@ -780,7 +1198,7 @@ function SalesView({
         </section>
       </div>
       <div className="workspace">
-        <SalesOrderForm accounts={accounts} contacts={contacts} onCreated={onChanged} />
+        <SalesOrderForm accounts={accounts} contacts={contacts} projects={projects} onCreated={onChanged} />
         <section className="panel">
           <div className="panelHeader">
             <h2>Client Purchase Orders</h2>
@@ -792,6 +1210,251 @@ function SalesView({
       <ClientHistoryView clientHistory={clientHistory} loading={loading} />
     </>
   );
+}
+
+function ProjectsView({
+  contacts,
+  loading,
+  projects,
+  projectProfitability,
+  onChanged
+}: {
+  contacts: Contact[];
+  loading: boolean;
+  projects: Project[];
+  projectProfitability: ProjectProfitability | null;
+  onChanged: () => void;
+}) {
+  return (
+    <>
+      <div className="metrics">
+        <Metric icon={<ClipboardList size={20} />} label="Contract value" value={projectProfitability?.contract_value ?? "0"} />
+        <Metric icon={<FileText size={20} />} label="Invoiced" value={projectProfitability?.invoiced_total ?? "0"} />
+        <Metric icon={<CircleDollarSign size={20} />} label="Recognized revenue" value={projectProfitability?.revenue_recognized ?? "0"} />
+        <Metric icon={<BookOpenCheck size={20} />} label="Gross profit" value={projectProfitability?.gross_profit ?? "0"} />
+      </div>
+      <div className="workspace">
+        <ProjectForm contacts={contacts} onCreated={onChanged} />
+        <section className="panel">
+          <div className="panelHeader">
+            <h2>Projects</h2>
+            <span>{projects.length} records</span>
+          </div>
+          <ProjectList loading={loading} projects={projects} />
+        </section>
+      </div>
+      <section className="panel">
+        <div className="panelHeader">
+          <h2>Project Profitability</h2>
+          <span>Issued invoices and posted costs</span>
+        </div>
+        <ProjectProfitabilityTable loading={loading} report={projectProfitability} />
+      </section>
+    </>
+  );
+}
+
+function ProjectForm({ contacts, onCreated }: { contacts: Contact[]; onCreated: () => void }) {
+  const customerContacts = contacts.filter((contact) => contact.type === "customer" || contact.type === "both");
+  const [projectCode, setProjectCode] = useState("");
+  const [name, setName] = useState("");
+  const [clientId, setClientId] = useState<number | "">("");
+  const [status, setStatus] = useState<ProjectPayload["status"]>("active");
+  const [serviceType, setServiceType] = useState<ProjectPayload["service_type"]>("ai_automation");
+  const [billingModel, setBillingModel] = useState<ProjectPayload["billing_model"]>("fixed_fee");
+  const [contractValue, setContractValue] = useState("0.00");
+  const [startDate, setStartDate] = useState(today());
+  const [endDate, setEndDate] = useState("");
+  const [description, setDescription] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const canSave = Boolean(projectCode && name && clientId && Number(contractValue) >= 0 && (!endDate || new Date(endDate) >= new Date(startDate)));
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canSave || clientId === "") return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      await api.createProject({
+        project_code: projectCode,
+        name,
+        client_id: clientId,
+        status,
+        service_type: serviceType,
+        billing_model: billingModel,
+        contract_value: contractValue,
+        start_date: startDate || undefined,
+        end_date: endDate || undefined,
+        description: description || undefined
+      });
+      setProjectCode("");
+      setName("");
+      setDescription("");
+      setMessage("Project saved.");
+      onCreated();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Unable to save project.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="panel">
+      <div className="panelHeader">
+        <h2>New Project</h2>
+        <span>Engagement setup</span>
+      </div>
+      <form className="transactionForm" onSubmit={(event) => void submit(event)}>
+        <div className="formGrid">
+          <label>
+            Code
+            <input value={projectCode} onChange={(event) => setProjectCode(event.target.value)} placeholder="ACME-AUTO-001" />
+          </label>
+          <label>
+            Status
+            <select value={status} onChange={(event) => setStatus(event.target.value as ProjectPayload["status"])}>
+              <option value="planned">Planned</option>
+              <option value="active">Active</option>
+              <option value="on_hold">On hold</option>
+              <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </label>
+        </div>
+        <label>
+          Name
+          <input value={name} onChange={(event) => setName(event.target.value)} />
+        </label>
+        <label>
+          Client
+          <select value={clientId} onChange={(event) => setClientId(event.target.value ? Number(event.target.value) : "")}>
+            <option value="">Select client</option>
+            {customerContacts.map((contact) => (
+              <option key={contact.id} value={contact.id}>
+                {contact.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="formGrid">
+          <label>
+            Service Type
+            <select value={serviceType} onChange={(event) => setServiceType(event.target.value as ProjectPayload["service_type"])}>
+              <option value="ai_automation">AI automation</option>
+              <option value="consulting">Consulting</option>
+              <option value="implementation">Implementation</option>
+              <option value="support">Support</option>
+              <option value="training">Training</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label>
+            Billing Model
+            <select value={billingModel} onChange={(event) => setBillingModel(event.target.value as ProjectPayload["billing_model"])}>
+              <option value="fixed_fee">Fixed fee</option>
+              <option value="milestone">Milestone</option>
+              <option value="retainer">Retainer</option>
+              <option value="time_and_materials">Time & materials</option>
+              <option value="subscription">Subscription</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+        </div>
+        <div className="formGrid">
+          <label>
+            Contract Value
+            <input min="0" step="0.01" type="number" value={contractValue} onChange={(event) => setContractValue(event.target.value)} />
+          </label>
+          <label>
+            Start Date
+            <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
+          </label>
+        </div>
+        <label>
+          End Date
+          <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
+        </label>
+        <label>
+          Description
+          <input value={description} onChange={(event) => setDescription(event.target.value)} />
+        </label>
+        <button className="primaryButton" disabled={!canSave || saving} type="submit">
+          <Plus size={18} />
+          {saving ? "Saving" : "Add Project"}
+        </button>
+        {message ? <p className="formMessage">{message}</p> : null}
+      </form>
+    </section>
+  );
+}
+
+function ProjectList({ loading, projects }: { loading: boolean; projects: Project[] }) {
+  if (loading) return <div className="empty">Loading projects...</div>;
+  if (!projects.length) return <div className="empty">No projects yet.</div>;
+  return (
+    <div className="entryList">
+      {projects.map((project) => (
+        <article className="entry" key={project.id}>
+          <div className="entryHeader">
+            <div>
+              <strong>{project.project_code} {project.name}</strong>
+              <span>{project.client.name} - {labelize(project.service_type)} - {labelize(project.billing_model)}</span>
+            </div>
+            <span>{formatMoney(project.contract_value)}</span>
+          </div>
+          <div className="transactionMeta projectMeta">
+            <span>{labelize(project.status)}</span>
+            <span>{project.start_date ?? "No start"}</span>
+            <span>{project.end_date ?? "No end"}</span>
+            <span>{project.description ?? "No description"}</span>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function ProjectProfitabilityTable({ loading, report }: { loading: boolean; report: ProjectProfitability | null }) {
+  if (loading) return <div className="empty">Loading project profitability...</div>;
+  if (!report?.rows.length) return <div className="empty">No project profitability yet.</div>;
+  return (
+    <div className="tableWrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Project</th>
+            <th>Client</th>
+            <th className="number">Contract</th>
+            <th className="number">Invoiced</th>
+            <th className="number">Revenue</th>
+            <th className="number">Direct Costs</th>
+            <th className="number">Gross Profit</th>
+            <th className="number">Margin</th>
+          </tr>
+        </thead>
+        <tbody>
+          {report.rows.map((row) => (
+            <tr key={row.project.id}>
+              <td>{row.project.project_code}</td>
+              <td>{row.project.client.name}</td>
+              <td className="number">{formatMoney(row.contract_value)}</td>
+              <td className="number">{formatMoney(row.invoiced_total)}</td>
+              <td className="number">{formatMoney(row.revenue_recognized)}</td>
+              <td className="number">{formatMoney(row.direct_costs)}</td>
+              <td className="number">{formatMoney(row.gross_profit)}</td>
+              <td className="number">{row.gross_margin ? `${(Number(row.gross_margin) * 100).toFixed(1)}%` : "-"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function labelize(value: string) {
+  return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function ClientHistoryView({ clientHistory, loading }: { clientHistory: ClientHistory | null; loading: boolean }) {
@@ -965,11 +1628,13 @@ function HistoryGroup({ children, count, title }: { children: React.ReactNode; c
 function SalesInvoiceForm({
   accounts,
   contacts,
+  projects,
   salesOrders,
   onCreated
 }: {
   accounts: Account[];
   contacts: Contact[];
+  projects: Project[];
   salesOrders: SalesOrder[];
   onCreated: () => void;
 }) {
@@ -980,6 +1645,7 @@ function SalesInvoiceForm({
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [customerId, setCustomerId] = useState<number | "">("");
   const [salesOrderId, setSalesOrderId] = useState<number | "">("");
+  const [projectId, setProjectId] = useState<number | "">("");
   const [issueDate, setIssueDate] = useState(today());
   const [dueDate, setDueDate] = useState(today());
   const [currency, setCurrency] = useState("SGD");
@@ -992,6 +1658,7 @@ function SalesInvoiceForm({
   const [message, setMessage] = useState<string | null>(null);
 
   const selectedCustomer = customerContacts.find((contact) => contact.id === customerId);
+  const customerProjects = projects.filter((project) => project.client.id === customerId && project.status !== "cancelled");
   const customerSalesOrders = salesOrders.filter(
     (order) => order.customer.id === customerId && !["closed", "cancelled"].includes(order.status) && Number(order.unbilled_total) > 0
   );
@@ -1015,6 +1682,7 @@ function SalesInvoiceForm({
   useEffect(() => {
     if (salesOrderId || customerSalesOrders.length !== 1) return;
     setSalesOrderId(customerSalesOrders[0].id);
+    setProjectId(customerSalesOrders[0].project?.id ?? "");
   }, [customerId, customerSalesOrders, salesOrderId]);
 
   function updateLine(index: number, changes: Partial<SalesOrderDraftLine>) {
@@ -1040,6 +1708,7 @@ function SalesInvoiceForm({
       status,
       customer_id: customerId,
       sales_order_id: salesOrderId || undefined,
+      project_id: projectId || undefined,
       issue_date: issueDate,
       due_date: dueDate,
       currency,
@@ -1059,6 +1728,7 @@ function SalesInvoiceForm({
       await api.createSalesInvoice(payload);
       setInvoiceNumber("");
       setSalesOrderId("");
+      setProjectId("");
       setNotes("");
       setMessage(status === "issued" ? "Invoice issued and posted." : "Draft invoice saved.");
       onCreated();
@@ -1091,7 +1761,7 @@ function SalesInvoiceForm({
         </div>
         <label>
           Customer
-          <select value={customerId} onChange={(event) => { setCustomerId(event.target.value ? Number(event.target.value) : ""); setSalesOrderId(""); }}>
+          <select value={customerId} onChange={(event) => { setCustomerId(event.target.value ? Number(event.target.value) : ""); setSalesOrderId(""); setProjectId(""); }}>
             <option value="">Select customer</option>
             {customerContacts.map((contact) => (
               <option key={contact.id} value={contact.id}>
@@ -1102,11 +1772,30 @@ function SalesInvoiceForm({
         </label>
         <label>
           Link Sales Booking
-          <select value={salesOrderId} onChange={(event) => setSalesOrderId(event.target.value ? Number(event.target.value) : "")}>
+          <select
+            value={salesOrderId}
+            onChange={(event) => {
+              const nextId = event.target.value ? Number(event.target.value) : "";
+              setSalesOrderId(nextId);
+              const selectedOrder = salesOrders.find((order) => order.id === nextId);
+              if (selectedOrder?.project) setProjectId(selectedOrder.project.id);
+            }}
+          >
             <option value="">No linked booking</option>
             {customerSalesOrders.map((order) => (
               <option key={order.id} value={order.id}>
                 {order.order_number} - unbilled {formatMoney(order.unbilled_total)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Project
+          <select value={projectId} onChange={(event) => setProjectId(event.target.value ? Number(event.target.value) : "")}>
+            <option value="">No project</option>
+            {customerProjects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.project_code} {project.name}
               </option>
             ))}
           </select>
@@ -1240,6 +1929,7 @@ function SalesInvoiceList({
           <div className="transactionMeta purchaseMeta">
             <span>Total {formatMoney(invoice.total)}</span>
             <span>Paid {formatMoney(invoice.amount_paid)}</span>
+            <span>{invoice.project ? invoice.project.project_code : "No project"}</span>
             <span>{invoice.sales_order ? invoice.sales_order.order_number : "No linked booking"}</span>
             <span>{invoice.payment_terms ?? "No terms"}</span>
             <div className="rowActions">
@@ -1449,7 +2139,7 @@ function CustomerReceiptList({ customerReceipts, loading }: { customerReceipts: 
   );
 }
 
-function SalesOrderForm({ accounts, contacts, onCreated }: { accounts: Account[]; contacts: Contact[]; onCreated: () => void }) {
+function SalesOrderForm({ accounts, contacts, projects, onCreated }: { accounts: Account[]; contacts: Contact[]; projects: Project[]; onCreated: () => void }) {
   const revenueAccounts = accounts.filter((account) => account.type === "revenue");
   const customerContacts = contacts.filter((contact) => contact.type === "customer" || contact.type === "both");
   const firstRevenueId = revenueAccounts[0]?.id ?? "";
@@ -1457,6 +2147,7 @@ function SalesOrderForm({ accounts, contacts, onCreated }: { accounts: Account[]
   const [orderNumber, setOrderNumber] = useState("");
   const [clientPoNumber, setClientPoNumber] = useState("");
   const [customerId, setCustomerId] = useState<number | "">("");
+  const [projectId, setProjectId] = useState<number | "">("");
   const [receivedDate, setReceivedDate] = useState(today());
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState("");
   const [currency, setCurrency] = useState("SGD");
@@ -1480,6 +2171,7 @@ function SalesOrderForm({ accounts, contacts, onCreated }: { accounts: Account[]
   }, [firstRevenueId, lines]);
 
   const selectedCustomer = customerContacts.find((contact) => contact.id === customerId);
+  const customerProjects = projects.filter((project) => project.client.id === customerId && project.status !== "cancelled");
   const total = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unit_price || 0) + Number(line.tax_amount || 0), 0);
   const calculatedDeposit = depositRequired ? Number(depositAmount || 0) || total * Number(depositRate || 0) : 0;
   const canSave =
@@ -1517,6 +2209,7 @@ function SalesOrderForm({ accounts, contacts, onCreated }: { accounts: Account[]
       client_po_number: clientPoNumber || undefined,
       status,
       customer_id: customerId,
+      project_id: projectId || undefined,
       received_date: receivedDate,
       expected_delivery_date: expectedDeliveryDate || undefined,
       currency,
@@ -1543,6 +2236,7 @@ function SalesOrderForm({ accounts, contacts, onCreated }: { accounts: Account[]
       await api.createSalesOrder(payload);
       setOrderNumber("");
       setClientPoNumber("");
+      setProjectId("");
       setPaymentTerms("");
       setDepositAmount("");
       setDepositDueDate("");
@@ -1585,11 +2279,22 @@ function SalesOrderForm({ accounts, contacts, onCreated }: { accounts: Account[]
         </label>
         <label>
           Customer
-          <select value={customerId} onChange={(event) => setCustomerId(event.target.value ? Number(event.target.value) : "")}>
+          <select value={customerId} onChange={(event) => { setCustomerId(event.target.value ? Number(event.target.value) : ""); setProjectId(""); }}>
             <option value="">Select customer</option>
             {customerContacts.map((contact) => (
               <option key={contact.id} value={contact.id}>
                 {contact.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Project
+          <select value={projectId} onChange={(event) => setProjectId(event.target.value ? Number(event.target.value) : "")}>
+            <option value="">No project</option>
+            {customerProjects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.project_code} {project.name}
               </option>
             ))}
           </select>
@@ -1807,12 +2512,20 @@ function PurchasingView({
   contacts,
   loading,
   purchaseOrders,
+  projects,
+  supplierBills,
+  supplierPayments,
+  approvalRequests,
   onChanged
 }: {
   accounts: Account[];
   contacts: Contact[];
   loading: boolean;
   purchaseOrders: PurchaseOrder[];
+  projects: Project[];
+  supplierBills: SupplierBill[];
+  supplierPayments: SupplierPayment[];
+  approvalRequests: ApprovalRequest[];
   onChanged: () => void;
 }) {
   const vendorContacts = contacts.filter((contact) => contact.type === "vendor" || contact.type === "both");
@@ -1839,7 +2552,475 @@ function PurchasingView({
           <PurchaseOrderList loading={loading} purchaseOrders={purchaseOrders} onChanged={onChanged} />
         </section>
       </div>
+      <div className="workspace">
+        <SupplierBillForm accounts={accounts} contacts={contacts} projects={projects} purchaseOrders={purchaseOrders} onCreated={onChanged} />
+        <section className="panel">
+          <div className="panelHeader">
+            <h2>Supplier Bills</h2>
+            <span>{supplierBills.length} records</span>
+          </div>
+          <SupplierBillList approvalRequests={approvalRequests} loading={loading} supplierBills={supplierBills} onChanged={onChanged} />
+        </section>
+      </div>
+      <div className="workspace">
+        <SupplierPaymentForm accounts={accounts} contacts={contacts} supplierBills={supplierBills} onCreated={onChanged} />
+        <section className="panel">
+          <div className="panelHeader">
+            <h2>Supplier Payments</h2>
+            <span>{supplierPayments.length} records</span>
+          </div>
+          <SupplierPaymentList approvalRequests={approvalRequests} loading={loading} supplierPayments={supplierPayments} onChanged={onChanged} />
+        </section>
+      </div>
     </>
+  );
+}
+
+function SupplierBillForm({
+  accounts,
+  contacts,
+  projects,
+  purchaseOrders,
+  onCreated
+}: {
+  accounts: Account[];
+  contacts: Contact[];
+  projects: Project[];
+  purchaseOrders: PurchaseOrder[];
+  onCreated: () => void;
+}) {
+  const costAccounts = accounts.filter((account) => account.type === "expense" || account.type === "asset");
+  const vendorContacts = contacts.filter((contact) => contact.type === "vendor" || contact.type === "both");
+  const firstCostId = costAccounts[0]?.id ?? "";
+  const [status, setStatus] = useState<SupplierBillStatus>("draft");
+  const [billNumber, setBillNumber] = useState("");
+  const [vendorId, setVendorId] = useState<number | "">("");
+  const [purchaseOrderId, setPurchaseOrderId] = useState<number | "">("");
+  const [projectId, setProjectId] = useState<number | "">("");
+  const [billDate, setBillDate] = useState(today());
+  const [dueDate, setDueDate] = useState(today());
+  const [currency, setCurrency] = useState("SGD");
+  const [paymentTerms, setPaymentTerms] = useState("");
+  const [reference, setReference] = useState("");
+  const [notes, setNotes] = useState("");
+  const [lines, setLines] = useState<PurchaseOrderDraftLine[]>([
+    { description: "Supplier service", quantity: "1", unit_price: "100.00", tax_amount: "0.00", expense_account_id: firstCostId }
+  ]);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!firstCostId || !lines.length || lines.some((line) => line.expense_account_id !== "")) return;
+    setLines((current) => current.map((line) => ({ ...line, expense_account_id: firstCostId })));
+  }, [firstCostId, lines]);
+
+  const selectedVendor = vendorContacts.find((contact) => contact.id === vendorId);
+  const vendorPurchaseOrders = purchaseOrders.filter((order) => order.vendor.id === vendorId && order.status !== "cancelled");
+  const total = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unit_price || 0) + Number(line.tax_amount || 0), 0);
+  const canSave =
+    Boolean(vendorId && billDate && dueDate && currency.length === 3 && lines.length) &&
+    lines.every((line) => line.description && Number(line.quantity) > 0 && Number(line.unit_price) >= 0 && Number(line.tax_amount) >= 0 && line.expense_account_id);
+
+  useEffect(() => {
+    if (selectedVendor?.payment_terms) {
+      setPaymentTerms(selectedVendor.payment_terms);
+    }
+  }, [selectedVendor?.id]);
+
+  useEffect(() => {
+    setPurchaseOrderId("");
+  }, [vendorId]);
+
+  function updateLine(index: number, changes: Partial<PurchaseOrderDraftLine>) {
+    setLines((current) => current.map((line, lineIndex) => (lineIndex === index ? { ...line, ...changes } : line)));
+  }
+
+  function addLine() {
+    setLines((current) => [
+      ...current,
+      { description: "", quantity: "1", unit_price: "0.00", tax_amount: "0.00", expense_account_id: firstCostId }
+    ]);
+  }
+
+  function removeLine(index: number) {
+    setLines((current) => (current.length === 1 ? current : current.filter((_, lineIndex) => lineIndex !== index)));
+  }
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canSave || vendorId === "") return;
+
+    const payload: SupplierBillPayload = {
+      bill_number: billNumber || undefined,
+      status,
+      vendor_id: vendorId,
+      purchase_order_id: purchaseOrderId === "" ? undefined : purchaseOrderId,
+      project_id: projectId === "" ? undefined : projectId,
+      bill_date: billDate,
+      due_date: dueDate,
+      currency,
+      payment_terms: paymentTerms || undefined,
+      reference: reference || undefined,
+      notes: notes || undefined,
+      lines: lines.map((line) => ({
+        description: line.description,
+        quantity: line.quantity,
+        unit_price: line.unit_price,
+        tax_amount: line.tax_amount,
+        expense_account_id: Number(line.expense_account_id)
+      }))
+    };
+
+    setSaving(true);
+    setMessage(null);
+    try {
+      await api.createSupplierBill(payload);
+      setBillNumber("");
+      setReference("");
+      setNotes("");
+      setLines([{ description: "Supplier service", quantity: "1", unit_price: "100.00", tax_amount: "0.00", expense_account_id: firstCostId }]);
+      setMessage(status === "posted" ? "Supplier bill posted to AP." : "Supplier bill saved.");
+      onCreated();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Unable to save supplier bill.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="panel">
+      <div className="panelHeader">
+        <h2>New Supplier Bill</h2>
+        <span>{formatMoney(total)}</span>
+      </div>
+      <form className="transactionForm" onSubmit={(event) => void submit(event)}>
+        <div className="formGrid">
+          <label>
+            Status
+            <select value={status} onChange={(event) => setStatus(event.target.value as SupplierBillStatus)}>
+              <option value="draft">Draft</option>
+              <option value="posted">Posted</option>
+            </select>
+          </label>
+          <label>
+            Bill Number
+            <input value={billNumber} onChange={(event) => setBillNumber(event.target.value)} placeholder="Auto if blank" />
+          </label>
+        </div>
+        <label>
+          Vendor
+          <select value={vendorId} onChange={(event) => setVendorId(event.target.value ? Number(event.target.value) : "")}>
+            <option value="">Select vendor</option>
+            {vendorContacts.map((contact) => (
+              <option key={contact.id} value={contact.id}>
+                {contact.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="formGrid">
+          <label>
+            Purchase Order
+            <select value={purchaseOrderId} onChange={(event) => setPurchaseOrderId(event.target.value ? Number(event.target.value) : "")}>
+              <option value="">No linked PO</option>
+              {vendorPurchaseOrders.map((order) => (
+                <option key={order.id} value={order.id}>
+                  {order.po_number} - {formatMoney(order.total)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Project
+            <select value={projectId} onChange={(event) => setProjectId(event.target.value ? Number(event.target.value) : "")}>
+              <option value="">No project</option>
+              {projects
+                .filter((project) => project.status !== "cancelled")
+                .map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.project_code} {project.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+        </div>
+        <div className="formGrid">
+          <label>
+            Bill Date
+            <input type="date" value={billDate} onChange={(event) => setBillDate(event.target.value)} />
+          </label>
+          <label>
+            Due Date
+            <input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
+          </label>
+        </div>
+        <div className="formGrid">
+          <label>
+            Currency
+            <input maxLength={3} value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} />
+          </label>
+          <label>
+            Supplier Reference
+            <input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Supplier invoice ref" />
+          </label>
+        </div>
+        <label>
+          Payment Terms
+          <input value={paymentTerms} onChange={(event) => setPaymentTerms(event.target.value)} />
+        </label>
+
+        <div className="lineEditor">
+          {lines.map((line, index) => (
+            <div className="poLine" key={index}>
+              <label>
+                Description
+                <input value={line.description} onChange={(event) => updateLine(index, { description: event.target.value })} />
+              </label>
+              <div className="formGrid">
+                <label>
+                  Qty
+                  <input min="0.001" step="0.001" type="number" value={line.quantity} onChange={(event) => updateLine(index, { quantity: event.target.value })} />
+                </label>
+                <label>
+                  Unit Price
+                  <input min="0" step="0.01" type="number" value={line.unit_price} onChange={(event) => updateLine(index, { unit_price: event.target.value })} />
+                </label>
+              </div>
+              <div className="formGrid">
+                <label>
+                  Tax
+                  <input min="0" step="0.01" type="number" value={line.tax_amount} onChange={(event) => updateLine(index, { tax_amount: event.target.value })} />
+                </label>
+                <label>
+                  Cost Account
+                  <select value={line.expense_account_id} onChange={(event) => updateLine(index, { expense_account_id: Number(event.target.value) })}>
+                    <option value="">Select</option>
+                    {costAccounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.code} {account.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <button className="smallButton" disabled={lines.length === 1} onClick={() => removeLine(index)} type="button">
+                Remove Line
+              </button>
+            </div>
+          ))}
+          <button className="smallButton" onClick={addLine} type="button">
+            <Plus size={14} />
+            Add Line
+          </button>
+        </div>
+
+        <label>
+          Notes
+          <input value={notes} onChange={(event) => setNotes(event.target.value)} />
+        </label>
+        <button className="primaryButton" disabled={!canSave || saving} type="submit">
+          <Plus size={18} />
+          {saving ? "Saving" : "Save Bill"}
+        </button>
+        {message ? <p className="formMessage">{message}</p> : null}
+      </form>
+    </section>
+  );
+}
+
+function SupplierPaymentForm({
+  accounts,
+  contacts,
+  supplierBills,
+  onCreated
+}: {
+  accounts: Account[];
+  contacts: Contact[];
+  supplierBills: SupplierBill[];
+  onCreated: () => void;
+}) {
+  const bankAccounts = accounts.filter((account) => account.type === "asset");
+  const vendorContacts = contacts.filter((contact) => contact.type === "vendor" || contact.type === "both");
+  const firstBankId = bankAccounts.find((account) => account.code === "1010")?.id ?? bankAccounts[0]?.id ?? "";
+  const [status, setStatus] = useState<SupplierPaymentStatus>("posted");
+  const [paymentNumber, setPaymentNumber] = useState("");
+  const [vendorId, setVendorId] = useState<number | "">("");
+  const [paymentDate, setPaymentDate] = useState(today());
+  const [currency, setCurrency] = useState("SGD");
+  const [bankAccountId, setBankAccountId] = useState<number | "">(firstBankId);
+  const [reference, setReference] = useState("");
+  const [notes, setNotes] = useState("");
+  const [allocations, setAllocations] = useState<SupplierPaymentDraftAllocation[]>([{ bill_id: "", amount: "0.00" }]);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const openBills = supplierBills.filter((bill) => bill.vendor.id === vendorId && bill.status === "posted" && Number(bill.amount_due) > 0);
+  const amount = allocations.reduce((sum, allocation) => sum + Number(allocation.amount || 0), 0);
+  const canSave =
+    Boolean(vendorId && paymentDate && currency.length === 3 && bankAccountId && amount > 0) &&
+    allocations.every((allocation) => allocation.bill_id && Number(allocation.amount) > 0);
+
+  useEffect(() => {
+    if (!firstBankId || bankAccountId !== "") return;
+    setBankAccountId(firstBankId);
+  }, [firstBankId, bankAccountId]);
+
+  useEffect(() => {
+    setAllocations([{ bill_id: "", amount: "0.00" }]);
+  }, [vendorId]);
+
+  function updateAllocation(index: number, changes: Partial<SupplierPaymentDraftAllocation>) {
+    setAllocations((current) => current.map((allocation, allocationIndex) => (allocationIndex === index ? { ...allocation, ...changes } : allocation)));
+  }
+
+  function addAllocation() {
+    setAllocations((current) => [...current, { bill_id: "", amount: "0.00" }]);
+  }
+
+  function removeAllocation(index: number) {
+    setAllocations((current) => (current.length === 1 ? current : current.filter((_, allocationIndex) => allocationIndex !== index)));
+  }
+
+  function fillAmount(index: number, billId: number | "") {
+    const bill = openBills.find((item) => item.id === billId);
+    updateAllocation(index, { bill_id: billId, amount: bill?.amount_due ?? "0.00" });
+  }
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canSave || vendorId === "" || bankAccountId === "") return;
+
+    const payload: SupplierPaymentPayload = {
+      payment_number: paymentNumber || undefined,
+      status,
+      vendor_id: vendorId,
+      payment_date: paymentDate,
+      currency,
+      amount: amount.toFixed(2),
+      bank_account_id: bankAccountId,
+      reference: reference || undefined,
+      notes: notes || undefined,
+      allocations: allocations.map((allocation) => ({
+        bill_id: Number(allocation.bill_id),
+        amount: Number(allocation.amount).toFixed(2)
+      }))
+    };
+
+    setSaving(true);
+    setMessage(null);
+    try {
+      await api.createSupplierPayment(payload);
+      setPaymentNumber("");
+      setReference("");
+      setNotes("");
+      setAllocations([{ bill_id: "", amount: "0.00" }]);
+      setMessage(status === "posted" ? "Supplier payment posted." : "Supplier payment saved.");
+      onCreated();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Unable to save supplier payment.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="panel">
+      <div className="panelHeader">
+        <h2>New Supplier Payment</h2>
+        <span>{formatMoney(amount)}</span>
+      </div>
+      <form className="transactionForm" onSubmit={(event) => void submit(event)}>
+        <div className="formGrid">
+          <label>
+            Status
+            <select value={status} onChange={(event) => setStatus(event.target.value as SupplierPaymentStatus)}>
+              <option value="posted">Posted</option>
+              <option value="draft">Draft</option>
+            </select>
+          </label>
+          <label>
+            Payment Number
+            <input value={paymentNumber} onChange={(event) => setPaymentNumber(event.target.value)} placeholder="Auto if blank" />
+          </label>
+        </div>
+        <label>
+          Vendor
+          <select value={vendorId} onChange={(event) => setVendorId(event.target.value ? Number(event.target.value) : "")}>
+            <option value="">Select vendor</option>
+            {vendorContacts.map((contact) => (
+              <option key={contact.id} value={contact.id}>
+                {contact.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="formGrid">
+          <label>
+            Payment Date
+            <input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} />
+          </label>
+          <label>
+            Bank Account
+            <select value={bankAccountId} onChange={(event) => setBankAccountId(event.target.value ? Number(event.target.value) : "")}>
+              <option value="">Select bank</option>
+              {bankAccounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.code} {account.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="formGrid">
+          <label>
+            Currency
+            <input maxLength={3} value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} />
+          </label>
+          <label>
+            Reference
+            <input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Bank transfer ref" />
+          </label>
+        </div>
+        <div className="lineEditor">
+          {allocations.map((allocation, index) => (
+            <div className="poLine" key={index}>
+              <label>
+                Supplier Bill
+                <select value={allocation.bill_id} onChange={(event) => fillAmount(index, event.target.value ? Number(event.target.value) : "")}>
+                  <option value="">Select open bill</option>
+                  {openBills.map((bill) => (
+                    <option key={bill.id} value={bill.id}>
+                      {bill.bill_number} due {formatMoney(bill.amount_due)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Amount
+                <input min="0.01" step="0.01" type="number" value={allocation.amount} onChange={(event) => updateAllocation(index, { amount: event.target.value })} />
+              </label>
+              <button className="smallButton" disabled={allocations.length === 1} onClick={() => removeAllocation(index)} type="button">
+                Remove Allocation
+              </button>
+            </div>
+          ))}
+          <button className="smallButton" onClick={addAllocation} type="button">
+            <Plus size={14} />
+            Add Allocation
+          </button>
+        </div>
+        <label>
+          Notes
+          <input value={notes} onChange={(event) => setNotes(event.target.value)} />
+        </label>
+        <button className="primaryButton" disabled={!canSave || saving} type="submit">
+          <Plus size={18} />
+          {saving ? "Saving" : "Save Payment"}
+        </button>
+        {message ? <p className="formMessage">{message}</p> : null}
+      </form>
+    </section>
   );
 }
 
@@ -2113,6 +3294,165 @@ function PurchaseOrderList({
                   {line.quantity} x {formatMoney(line.unit_price)}
                 </span>
                 <span>{formatMoney(line.line_total)}</span>
+              </div>
+            ))}
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function SupplierBillList({
+  approvalRequests,
+  loading,
+  supplierBills,
+  onChanged
+}: {
+  approvalRequests: ApprovalRequest[];
+  loading: boolean;
+  supplierBills: SupplierBill[];
+  onChanged: () => void;
+}) {
+  if (loading) return <div className="empty">Loading supplier bills...</div>;
+  if (!supplierBills.length) return <div className="empty">No supplier bills yet.</div>;
+
+  async function postBill(id: number) {
+    await api.postSupplierBill(id);
+    onChanged();
+  }
+
+  async function requestApproval(id: number) {
+    await api.createApprovalRequest({
+      document_type: "supplier_bill",
+      document_id: id,
+      action: "post",
+      requested_by: "IntelliArtAI",
+      reason: "Posting supplier bill to Accounts Payable."
+    });
+    onChanged();
+  }
+
+  function approvalStatus(id: number) {
+    return approvalRequests.find((request) => request.document_type === "supplier_bill" && request.document_id === id && request.action === "post")?.status;
+  }
+
+  return (
+    <div className="entryList">
+      {supplierBills.map((bill) => (
+        <article className="entry" key={bill.id}>
+          <div className="entryHeader">
+            <div>
+              <strong>{bill.bill_number}</strong>
+              <span>
+                {bill.bill_date} - {bill.status}
+              </span>
+            </div>
+            <span>{formatMoney(bill.total)}</span>
+          </div>
+          <div className="transactionMeta purchaseMeta">
+            <span>{bill.vendor.name}</span>
+            <span>{bill.purchase_order?.po_number ?? "No PO"}</span>
+            <span>{bill.project?.project_code ?? "No project"}</span>
+            <span>{bill.reference ?? "No supplier ref"}</span>
+            {bill.status === "draft" ? (
+              <>
+                <span>{approvalStatus(bill.id) ?? "No approval request"}</span>
+                <button className="smallButton" onClick={() => void requestApproval(bill.id)} type="button">
+                  Request Approval
+                </button>
+                <button className="smallButton" onClick={() => void postBill(bill.id)} type="button">
+                  Post
+                </button>
+              </>
+            ) : null}
+          </div>
+          <div className="entryLines poLines">
+            {bill.lines.slice(0, 4).map((line) => (
+              <div key={line.id}>
+                <span>{line.description}</span>
+                <span>
+                  {line.quantity} x {formatMoney(line.unit_price)}
+                </span>
+                <span>{formatMoney(line.line_total)}</span>
+              </div>
+            ))}
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function SupplierPaymentList({
+  approvalRequests,
+  loading,
+  supplierPayments,
+  onChanged
+}: {
+  approvalRequests: ApprovalRequest[];
+  loading: boolean;
+  supplierPayments: SupplierPayment[];
+  onChanged: () => void;
+}) {
+  if (loading) return <div className="empty">Loading supplier payments...</div>;
+  if (!supplierPayments.length) return <div className="empty">No supplier payments yet.</div>;
+
+  async function postPayment(id: number) {
+    await api.postSupplierPayment(id);
+    onChanged();
+  }
+
+  async function requestApproval(id: number) {
+    await api.createApprovalRequest({
+      document_type: "supplier_payment",
+      document_id: id,
+      action: "post",
+      requested_by: "IntelliArtAI",
+      reason: "Posting supplier payment against Accounts Payable."
+    });
+    onChanged();
+  }
+
+  function approvalStatus(id: number) {
+    return approvalRequests.find((request) => request.document_type === "supplier_payment" && request.document_id === id && request.action === "post")?.status;
+  }
+
+  return (
+    <div className="entryList">
+      {supplierPayments.map((payment) => (
+        <article className="entry" key={payment.id}>
+          <div className="entryHeader">
+            <div>
+              <strong>{payment.payment_number}</strong>
+              <span>
+                {payment.payment_date} - {payment.status}
+              </span>
+            </div>
+            <span>{formatMoney(payment.amount)}</span>
+          </div>
+          <div className="transactionMeta purchaseMeta">
+            <span>{payment.vendor.name}</span>
+            <span>{payment.bank_account.code} {payment.bank_account.name}</span>
+            <span>{payment.reference ?? "No reference"}</span>
+            {payment.status === "draft" ? (
+              <>
+                <span>{approvalStatus(payment.id) ?? "No approval request"}</span>
+                <button className="smallButton" onClick={() => void requestApproval(payment.id)} type="button">
+                  Request Approval
+                </button>
+                <button className="smallButton" onClick={() => void postPayment(payment.id)} type="button">
+                  Post
+                </button>
+              </>
+            ) : null}
+          </div>
+          <div className="entryLines poLines">
+            {payment.allocations.slice(0, 4).map((allocation) => (
+              <div key={allocation.id}>
+                <span>{allocation.bill.bill_number}</span>
+                <span>{allocation.bill.vendor.name}</span>
+                <span>{formatMoney(allocation.amount)}</span>
               </div>
             ))}
           </div>
@@ -2938,31 +4278,71 @@ function ContactForm({
   );
 }
 
-function ReportsView({ balanceSheet, loading, profitAndLoss }: { balanceSheet: BalanceSheet | null; loading: boolean; profitAndLoss: ProfitAndLoss | null }) {
+function ReportsView({
+  auditEvents,
+  balanceSheet,
+  loading,
+  profitAndLoss
+}: {
+  auditEvents: AuditEvent[];
+  balanceSheet: BalanceSheet | null;
+  loading: boolean;
+  profitAndLoss: ProfitAndLoss | null;
+}) {
   if (loading) return <section className="panel empty">Loading reports...</section>;
   return (
-    <div className="reportGrid">
+    <>
+      <div className="reportGrid">
+        <section className="panel">
+          <div className="panelHeader">
+            <h2>Profit & Loss</h2>
+            <span>Posted entries</span>
+          </div>
+          <ReportLine label="Revenue" value={profitAndLoss?.revenue ?? "0"} />
+          <ReportLine label="Expenses" value={profitAndLoss?.expenses ?? "0"} />
+          <ReportLine strong label="Net income" value={profitAndLoss?.net_income ?? "0"} />
+        </section>
+        <section className="panel">
+          <div className="panelHeader">
+            <h2>Balance Sheet</h2>
+            <span>Current position</span>
+          </div>
+          <ReportLine label="Assets" value={balanceSheet?.assets ?? "0"} />
+          <ReportLine label="Liabilities" value={balanceSheet?.liabilities ?? "0"} />
+          <ReportLine label="Equity" value={balanceSheet?.equity ?? "0"} />
+          <ReportLine label="Retained earnings" value={balanceSheet?.retained_earnings ?? "0"} />
+          <ReportLine strong label="Liabilities + equity" value={balanceSheet?.total_liabilities_and_equity ?? "0"} />
+        </section>
+      </div>
       <section className="panel">
         <div className="panelHeader">
-          <h2>Profit & Loss</h2>
-          <span>Posted entries</span>
+          <h2>Audit Trail</h2>
+          <span>{auditEvents.length} events</span>
         </div>
-        <ReportLine label="Revenue" value={profitAndLoss?.revenue ?? "0"} />
-        <ReportLine label="Expenses" value={profitAndLoss?.expenses ?? "0"} />
-        <ReportLine strong label="Net income" value={profitAndLoss?.net_income ?? "0"} />
+        {!auditEvents.length ? <div className="empty">No audit events yet.</div> : null}
+        {auditEvents.length ? (
+          <div className="entryList">
+            {auditEvents.slice(0, 25).map((event) => (
+              <article className="entry" key={event.id}>
+                <div className="entryHeader">
+                  <div>
+                    <strong>{event.summary}</strong>
+                    <span>
+                      {event.created_at.slice(0, 10)} - {event.entity_type} #{event.entity_id ?? "n/a"}
+                    </span>
+                  </div>
+                  <span>{event.action}</span>
+                </div>
+                <div className="transactionMeta purchaseMeta">
+                  <span>{event.actor ?? "System"}</span>
+                  <span>{event.details_json ?? "No extra details"}</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : null}
       </section>
-      <section className="panel">
-        <div className="panelHeader">
-          <h2>Balance Sheet</h2>
-          <span>Current position</span>
-        </div>
-        <ReportLine label="Assets" value={balanceSheet?.assets ?? "0"} />
-        <ReportLine label="Liabilities" value={balanceSheet?.liabilities ?? "0"} />
-        <ReportLine label="Equity" value={balanceSheet?.equity ?? "0"} />
-        <ReportLine label="Retained earnings" value={balanceSheet?.retained_earnings ?? "0"} />
-        <ReportLine strong label="Liabilities + equity" value={balanceSheet?.total_liabilities_and_equity ?? "0"} />
-      </section>
-    </div>
+    </>
   );
 }
 
@@ -3000,6 +4380,16 @@ function SettingsView({
     }
   }
 
+  async function downloadBackupExport() {
+    setMessage(null);
+    try {
+      await api.downloadBackupExport();
+      setMessage("Backup export downloaded.");
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Unable to download backup export.");
+    }
+  }
+
   return (
     <>
       <section className="panel settingsPanel">
@@ -3027,6 +4417,10 @@ function SettingsView({
           <button className="primaryButton" type="submit">
             <Building2 size={18} />
             Save
+          </button>
+          <button className="smallButton" onClick={() => void downloadBackupExport()} type="button">
+            <Download size={15} />
+            Backup Export
           </button>
           {message ? <p className="formMessage">{message}</p> : null}
         </form>
@@ -3125,6 +4519,7 @@ function TransactionList({
           {!compact ? (
             <div className="transactionMeta">
               <span>{transaction.contact?.name ?? "No contact"}</span>
+              <span>{transaction.project ? transaction.project.project_code : "No project"}</span>
               <span>
                 {transaction.debit_account.code} {"->"} {transaction.credit_account.code}
               </span>

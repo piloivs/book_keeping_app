@@ -2,7 +2,7 @@
 
 ## Current Version
 
-This manual covers the local single-user prototype.
+This manual covers the local single-user prototype after the Step 3 controls increment.
 
 ## Start the App
 
@@ -20,7 +20,11 @@ Start the app:
 
 This starts both the backend API and the frontend dashboard. Press Ctrl+C in that terminal to stop both.
 
-If you want to run the two parts manually, start the backend API:
+If you want to run the two parts manually, first apply migrations and start the backend API:
+
+```powershell
+.venv\Scripts\python.exe -m alembic upgrade head
+```
 
 ```powershell
 .venv\Scripts\python.exe -m uvicorn bookkeeping_app.main:app --reload --host 127.0.0.1 --port 8000
@@ -58,13 +62,14 @@ Use the refresh button in the top-right corner to reload data from the backend.
 
 The main navigation tabs are organized by business module:
 
-- Dashboard: read-only operating overview, A/R ageing, operational queue, read-only chart of accounts, and recent journal entries.
-- Finance: daily income and expense capture, posted transactions, and receipt extraction.
+- Dashboard: read-only operating overview, A/R and A/P ageing, approval queue, operational queue, read-only chart of accounts, and recent journal entries.
+- Finance: daily income and expense capture, posted transactions, receipt extraction, and bank reconciliation.
 - Sales: customer master records, sales invoices, customer receipts, client purchase orders, and client history.
-- Purchasing: vendor master records, vendor qualification, purchase orders, issuance, and cancellation.
+- Projects: IntelliArtAI engagement records, contract values, linked sales/cost activity, and project profitability.
+- Purchasing: vendor master records, vendor qualification, purchase orders, supplier bills, supplier payments, and approval requests.
 - HR & Payroll: employee master records, salary runs, CPF withholding, employer CPF, payroll posting, and payslip printing.
-- Reports: current profit and loss and balance sheet views.
-- Settings: company profile, reporting defaults, and controlled chart-of-accounts setup.
+- Reports: current profit and loss, balance sheet, and audit trail views.
+- Settings: company profile, reporting defaults, controlled chart-of-accounts setup, and backup export.
 
 ## Chart of Accounts
 
@@ -92,6 +97,8 @@ Default accounts include:
 - 2000 Accounts Payable
 - 2100 CPF Payable
 - 2150 Deferred Revenue
+- 2200 GST Output Tax
+- 2210 GST Input Tax
 - 3000 Owner Equity
 - 3900 Retained Earnings
 - 4000 Sales Revenue
@@ -148,6 +155,22 @@ Do not manually edit receipt files after upload.
 Click Extract beside a receipt-backed transaction to run local Tesseract OCR and local Ollama structured parsing. The app stores a review result with merchant, receipt date, subtotal, tax, total, visible text, and line items. If Tesseract or Ollama is not available, the transaction will show a setup message instead of changing the receipt or ledger.
 
 Receipt extraction currently supports image uploads such as JPG, PNG, or TIFF. It is meant to speed up data entry, not replace review. Check extracted totals and line descriptions before relying on them.
+
+## Bank Reconciliation
+
+Use the Finance tab to add bank statement lines and match them to existing posted journal entries.
+
+Bank statement line fields:
+
+- Statement date.
+- Bank account.
+- Description.
+- Reference.
+- Amount. Positive amounts represent money into the selected bank/cash account. Negative amounts represent money out.
+
+Reconciliation does not create accounting entries. It links the bank statement evidence to an existing journal entry only when the signed movement on the same bank/cash account matches the statement line amount.
+
+If a line was matched in error, use Unreconcile. This removes the evidence link but does not change the ledger entry.
 
 ## HR & Payroll
 
@@ -223,7 +246,7 @@ The salary slip includes the employer name, employee name, pay date, salary peri
 
 ## Purchasing
 
-Use the Purchasing tab to prepare and issue purchase orders to vendors.
+Use the Purchasing tab to prepare purchase orders, record supplier bills, pay suppliers, and manage AP approvals.
 
 Before issuing a PO, create the vendor in the Vendor Master section and set Vendor Qualification to Qualified. The app lets you create draft POs for vendor contacts that are still pending, but it blocks issuing POs unless the vendor is qualified.
 
@@ -254,7 +277,82 @@ Purchase order fields:
 
 PO statuses currently supported by the backend are draft, issued, partially received, received, billed, closed, and cancelled. The current browser workflow supports creating draft or issued POs, issuing draft POs, and cancelling open POs.
 
-Purchase orders do not affect the ledger or reports yet. They represent a purchasing commitment. Accounting should happen later when a supplier invoice or bill is recorded from the PO.
+Purchase orders do not affect the ledger or reports. They represent a purchasing commitment. Accounting happens when a supplier bill is recorded and posted.
+
+### Supplier Bills
+
+Use Supplier Bills to record vendor invoices and create Accounts Payable.
+
+Supplier bill fields:
+
+- Status: Draft or Posted.
+- Bill Number: optional. If blank, the app generates a number such as `BILL-202606-0001`.
+- Vendor.
+- Optional linked purchase order.
+- Optional linked project.
+- Bill Date.
+- Due Date.
+- Supplier Reference.
+- Currency.
+- Payment Terms.
+- Line descriptions, quantities, unit prices, tax amounts, and expense or asset accounts.
+- Notes.
+
+Posted supplier bills create:
+
+- Debit the selected expense or asset account for each line subtotal.
+- Debit GST Input Tax when line tax is present.
+- Credit Accounts Payable for the bill total.
+
+Draft supplier bills do not affect the ledger, A/P ageing, or project profitability until posted. Posted supplier bill lines and accounting fields are protected against silent edits.
+
+### Supplier Payments
+
+Use Supplier Payments to settle posted supplier bills.
+
+Supplier payment fields:
+
+- Status: Draft or Posted.
+- Payment Number: optional. If blank, the app generates a number such as `PAY-202606-0001`.
+- Vendor.
+- Payment Date.
+- Bank Account.
+- Reference.
+- Amount.
+- Allocations to one or more posted supplier bills.
+- Notes.
+
+Posted supplier payments create:
+
+- Debit Accounts Payable.
+- Credit the selected bank or cash account.
+
+Allocations cannot exceed the unpaid amount on posted supplier bills. Draft payments do not affect A/P ageing or the ledger.
+
+### Approval Requests
+
+Supplier bills and supplier payments can be submitted for approval from Purchasing before posting.
+
+Pending approval requests appear on the Dashboard approval queue. Once a document is in the approval workflow, posting is blocked while the latest request is pending or rejected. An approved latest request allows posting.
+
+This is the first approval-control slice. There are not yet configurable approval thresholds, approver roles, or delegation rules.
+
+## Projects
+
+Use the Projects tab to track IntelliArtAI client engagements.
+
+Project fields:
+
+- Client.
+- Project code and name.
+- Status.
+- Service type.
+- Billing model.
+- Contract value.
+- Start and end dates.
+- Notes.
+
+Projects can be linked to client purchase orders, sales invoices, income/expense transactions, and supplier bills. Project profitability uses issued invoice revenue, posted direct expense transactions, and posted supplier bill subtotals. Recoverable GST is not treated as project cost.
 
 ## Sales
 
@@ -391,6 +489,8 @@ The Reports tab currently includes:
 
 - Profit & Loss: revenue, expenses, and net income.
 - Balance Sheet: assets, liabilities, equity, retained earnings, and total liabilities plus equity.
+- Project Profitability: contract value, issued invoice revenue, posted direct costs, gross profit, and margin.
+- Audit Trail: key control events such as approval requests, approval decisions, supplier bill/payment posting, and bank reconciliation actions.
 
 These are internal management reports based on posted journal entries. They are intended to support review by IntelliArtAI's corporate secretary or accountant, not to replace formal ACRA/IRAS review.
 
@@ -404,6 +504,8 @@ Use the Settings tab to maintain:
 - Base currency
 
 Settings also contains Chart of Accounts Setup. This is intentionally separate from the dashboard because changing accounts affects transaction posting, reporting, and future workflows.
+
+Use Backup Export in Settings to download a ZIP containing `manifest.json`, `README.txt`, and JSON snapshots of all database tables. The export is for backup, accountant review, and handoff. It does not restore or re-import data yet.
 
 ## Troubleshooting
 
@@ -449,15 +551,21 @@ data/warehouse/bookkeeping.sqlite3
 
 Do not manually edit this file while the app is running.
 
+Schema migrations are managed with Alembic:
+
+```powershell
+.venv\Scripts\python.exe -m alembic upgrade head
+```
+
 ## Current Limitations
 
 This prototype does not yet include:
 
 - User login
-- Supplier bills
-- Bank imports and reconciliation
+- Bank CSV import and suggested matching
 - Document preview/download from the UI
 - PO receiving and PO-to-bill matching
+- Configurable approval policies, thresholds, and approver roles
 - Milestone billing, deposit application, and deferred revenue release
 - Formal financial statement screens
 - Multi-user permissions

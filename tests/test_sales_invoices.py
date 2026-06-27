@@ -93,6 +93,16 @@ def test_issued_sales_invoice_posts_ar_revenue_and_gst(db_session) -> None:
     assert gst_line.credit == Decimal("90.00")
 
 
+def test_issued_sales_invoice_line_cannot_be_silently_edited(db_session) -> None:
+    client = customer(db_session)
+    invoice = create_sales_invoice(db_session, invoice_payload(db_session, client.id, SalesInvoiceStatus.ISSUED))
+
+    invoice.lines[0].unit_price = Decimal("1200.00")
+
+    with pytest.raises(ValueError, match="Posted sales invoice lines"):
+        db_session.commit()
+
+
 def test_draft_sales_invoice_can_be_issued_once(db_session) -> None:
     client = customer(db_session)
     invoice = create_sales_invoice(db_session, invoice_payload(db_session, client.id))
@@ -137,6 +147,26 @@ def test_customer_receipt_posts_bank_and_reduces_invoice_amount_due(db_session) 
     ar_line = next(line for line in lines if line.account_id == account_id(db_session, "1100"))
     assert bank_line.debit == Decimal("500.00")
     assert ar_line.credit == Decimal("500.00")
+
+
+def test_posted_customer_receipt_allocation_cannot_be_silently_edited(db_session) -> None:
+    client = customer(db_session)
+    invoice = create_sales_invoice(db_session, invoice_payload(db_session, client.id, SalesInvoiceStatus.ISSUED))
+    receipt = create_customer_receipt(
+        db_session,
+        CustomerReceiptCreate(
+            customer_id=client.id,
+            receipt_date=date(2026, 6, 15),
+            amount=Decimal("500.00"),
+            bank_account_id=account_id(db_session, "1010"),
+            allocations=[CustomerReceiptAllocationCreate(invoice_id=invoice.id, amount=Decimal("500.00"))],
+        ),
+    )
+
+    receipt.allocations[0].amount = Decimal("499.00")
+
+    with pytest.raises(ValueError, match="Posted receipt allocations"):
+        db_session.commit()
 
 
 def test_customer_receipt_number_serializes_by_invoice_and_date(db_session) -> None:

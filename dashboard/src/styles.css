@@ -348,7 +348,7 @@ h2 {
 }
 
 .purchaseMeta {
-  grid-template-columns: 1fr 1fr 1fr auto;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
 }
 
 .employeeMeta {
@@ -587,7 +587,7 @@ th {
   display: grid;
   font-size: 0.88rem;
   gap: 10px;
-  grid-template-columns: 1fr 1fr 1fr auto;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
 }
 
 .receiptExtraction {

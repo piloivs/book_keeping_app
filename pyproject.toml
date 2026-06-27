@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Local-first bookkeeping prototype."
 requires-python = ">=3.11"
 dependencies = [
+    "alembic>=1.13",
     "fastapi>=0.115",
     "pydantic>=2.8",
     "pydantic-settings>=2.4",

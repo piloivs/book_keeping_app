@@ -54,6 +54,26 @@ def test_posted_expense_creates_journal_entry_and_receipt(db_session, tmp_path) 
     assert db_session.scalar(select(JournalEntry).where(JournalEntry.id == transaction.journal_entry_id)) is not None
 
 
+def test_posted_operational_transaction_cannot_be_silently_edited(db_session) -> None:
+    transaction = create_operational_transaction(
+        db_session,
+        OperationalTransactionCreate(
+            kind=TransactionKind.EXPENSE,
+            status=TransactionStatus.POSTED,
+            transaction_date=date(2026, 6, 14),
+            description="Software subscription",
+            amount=Decimal("120.00"),
+            debit_account_id=account_id(db_session, "5100"),
+            credit_account_id=account_id(db_session, "1010"),
+        ),
+    )
+
+    transaction.amount = Decimal("121.00")
+
+    with pytest.raises(ValueError, match="immutable"):
+        db_session.commit()
+
+
 def test_receipt_extraction_records_not_configured_status(db_session, monkeypatch) -> None:
     monkeypatch.setenv("RECEIPT_EXTRACTION_PROVIDER", "tesseract")
     from bookkeeping_app.config import get_settings

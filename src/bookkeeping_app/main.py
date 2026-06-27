@@ -12,6 +12,7 @@ from .accounting import (
     import_chart_of_accounts,
     list_accounts_with_balances,
     recent_entries,
+    reverse_journal_entry,
     seed_default_accounts,
     serialize_entry,
     validate_chart_of_accounts,
@@ -20,45 +21,75 @@ from .config import get_settings
 from .database import Base, SessionLocal, engine, get_db
 from .models import Account, AccountType
 from .operations import (
+    accounts_payable_ageing,
     accounts_receivable_ageing,
+    approve_request,
     balance_sheet,
+    bank_reconciliation_summary,
     apply_local_schema_updates,
     accept_sales_order,
     cancel_purchase_order,
     cancel_sales_order,
     client_history,
+    create_bank_statement_line,
+    create_backup_export,
     create_customer_receipt,
     create_contact,
     create_employee,
     create_operational_transaction,
     create_payroll_run,
+    create_project,
     create_purchase_order,
     create_sales_invoice,
     create_sales_order,
+    create_supplier_bill,
+    create_supplier_payment,
     extract_receipt_details,
     get_company_settings,
+    list_approval_requests,
+    list_audit_events,
     list_contacts,
+    list_bank_statement_lines,
     list_employees,
     list_operational_transactions,
     list_payroll_runs,
+    list_projects,
     list_purchase_orders,
+    list_supplier_bills,
+    list_supplier_payments,
     list_customer_receipts,
     list_sales_invoices,
     list_sales_orders,
     post_payroll_run,
+    post_supplier_bill,
+    post_supplier_payment,
     post_unposted_paid_sales_order_deposits,
     post_operational_transaction,
+    reconcile_bank_statement_line,
     issue_purchase_order,
     issue_sales_invoice,
     link_sales_invoice_to_sales_order,
     profit_and_loss,
+    project_profitability,
+    reject_request,
+    request_approval,
     seed_company_settings,
     update_company_settings,
+    unreconcile_bank_statement_line,
 )
 from .schemas import (
     AccountCreate,
     AccountRead,
+    AccountsPayableAgeingReport,
     AccountsReceivableAgeingReport,
+    ApprovalDecision,
+    ApprovalRequestCreate,
+    ApprovalRequestRead,
+    AuditEventRead,
+    BankReconciliationSummary,
+    BankStatementLineCreate,
+    BankStatementLineRead,
+    BankStatementReconcile,
     BalanceSheetReport,
     ChartOfAccountsImport,
     ChartOfAccountsImportResult,
@@ -75,10 +106,14 @@ from .schemas import (
     EmployeeRead,
     JournalEntryCreate,
     JournalEntryRead,
+    JournalEntryReversalCreate,
     OperationalTransactionCreate,
     OperationalTransactionRead,
     PayrollRunCreate,
     PayrollRunRead,
+    ProjectCreate,
+    ProjectProfitabilityReport,
+    ProjectRead,
     ProfitAndLossReport,
     PurchaseOrderCreate,
     PurchaseOrderRead,
@@ -88,6 +123,10 @@ from .schemas import (
     SalesInvoiceRead,
     SalesOrderCreate,
     SalesOrderRead,
+    SupplierBillCreate,
+    SupplierBillRead,
+    SupplierPaymentCreate,
+    SupplierPaymentRead,
 )
 
 settings = get_settings()
@@ -144,6 +183,16 @@ def get_accounts_export(db: Session = Depends(get_db)) -> Response:
     )
 
 
+@app.get("/exports/backup.zip")
+def get_backup_export(db: Session = Depends(get_db)) -> Response:
+    filename, content = create_backup_export(db)
+    return Response(
+        content=content,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.post("/accounts", response_model=AccountRead, status_code=201)
 def post_account(payload: AccountCreate, db: Session = Depends(get_db)) -> AccountRead:
     account = Account(**payload.model_dump())
@@ -188,6 +237,19 @@ def get_contacts(db: Session = Depends(get_db)) -> list[ContactRead]:
 @app.post("/contacts", response_model=ContactRead, status_code=201)
 def post_contact(payload: ContactCreate, db: Session = Depends(get_db)) -> ContactRead:
     return create_contact(db, payload)
+
+
+@app.get("/projects", response_model=list[ProjectRead])
+def get_projects(db: Session = Depends(get_db)) -> list[ProjectRead]:
+    return list_projects(db)
+
+
+@app.post("/projects", response_model=ProjectRead, status_code=201)
+def post_project(payload: ProjectCreate, db: Session = Depends(get_db)) -> ProjectRead:
+    try:
+        return create_project(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/employees", response_model=list[EmployeeRead])
@@ -282,6 +344,48 @@ def post_purchase_order_cancel(purchase_order_id: int, db: Session = Depends(get
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.get("/supplier-bills", response_model=list[SupplierBillRead])
+def get_supplier_bills(limit: int = 50, db: Session = Depends(get_db)) -> list[SupplierBillRead]:
+    return list_supplier_bills(db, limit=limit)
+
+
+@app.post("/supplier-bills", response_model=SupplierBillRead, status_code=201)
+def post_supplier_bill_endpoint(payload: SupplierBillCreate, db: Session = Depends(get_db)) -> SupplierBillRead:
+    try:
+        return create_supplier_bill(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/supplier-bills/{bill_id}/post", response_model=SupplierBillRead)
+def post_supplier_bill_to_ledger(bill_id: int, db: Session = Depends(get_db)) -> SupplierBillRead:
+    try:
+        return post_supplier_bill(db, bill_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/supplier-payments", response_model=list[SupplierPaymentRead])
+def get_supplier_payments(limit: int = 50, db: Session = Depends(get_db)) -> list[SupplierPaymentRead]:
+    return list_supplier_payments(db, limit=limit)
+
+
+@app.post("/supplier-payments", response_model=SupplierPaymentRead, status_code=201)
+def post_supplier_payment_endpoint(payload: SupplierPaymentCreate, db: Session = Depends(get_db)) -> SupplierPaymentRead:
+    try:
+        return create_supplier_payment(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/supplier-payments/{payment_id}/post", response_model=SupplierPaymentRead)
+def post_supplier_payment_to_ledger(payment_id: int, db: Session = Depends(get_db)) -> SupplierPaymentRead:
+    try:
+        return post_supplier_payment(db, payment_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/sales-orders", response_model=list[SalesOrderRead])
 def get_sales_orders(limit: int = 50, db: Session = Depends(get_db)) -> list[SalesOrderRead]:
     return list_sales_orders(db, limit=limit)
@@ -357,6 +461,82 @@ def post_customer_receipt(payload: CustomerReceiptCreate, db: Session = Depends(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.get("/approval-requests", response_model=list[ApprovalRequestRead])
+def get_approval_requests(limit: int = 100, db: Session = Depends(get_db)) -> list[ApprovalRequestRead]:
+    return list_approval_requests(db, limit=limit)
+
+
+@app.get("/audit-events", response_model=list[AuditEventRead])
+def get_audit_events(limit: int = 100, db: Session = Depends(get_db)) -> list[AuditEventRead]:
+    return list_audit_events(db, limit=limit)
+
+
+@app.post("/approval-requests", response_model=ApprovalRequestRead, status_code=201)
+def post_approval_request(payload: ApprovalRequestCreate, db: Session = Depends(get_db)) -> ApprovalRequestRead:
+    return request_approval(db, payload)
+
+
+@app.post("/approval-requests/{request_id}/approve", response_model=ApprovalRequestRead)
+def post_approval_request_approve(
+    request_id: int,
+    payload: ApprovalDecision,
+    db: Session = Depends(get_db),
+) -> ApprovalRequestRead:
+    try:
+        return approve_request(db, request_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/approval-requests/{request_id}/reject", response_model=ApprovalRequestRead)
+def post_approval_request_reject(
+    request_id: int,
+    payload: ApprovalDecision,
+    db: Session = Depends(get_db),
+) -> ApprovalRequestRead:
+    try:
+        return reject_request(db, request_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/bank-statement-lines", response_model=list[BankStatementLineRead])
+def get_bank_statement_lines(
+    bank_account_id: int | None = None,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+) -> list[BankStatementLineRead]:
+    return list_bank_statement_lines(db, bank_account_id=bank_account_id, limit=limit)
+
+
+@app.post("/bank-statement-lines", response_model=BankStatementLineRead, status_code=201)
+def post_bank_statement_line(payload: BankStatementLineCreate, db: Session = Depends(get_db)) -> BankStatementLineRead:
+    try:
+        return create_bank_statement_line(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/bank-statement-lines/{line_id}/reconcile", response_model=BankStatementLineRead)
+def post_bank_statement_line_reconcile(
+    line_id: int,
+    payload: BankStatementReconcile,
+    db: Session = Depends(get_db),
+) -> BankStatementLineRead:
+    try:
+        return reconcile_bank_statement_line(db, line_id, payload.journal_entry_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/bank-statement-lines/{line_id}/unreconcile", response_model=BankStatementLineRead)
+def post_bank_statement_line_unreconcile(line_id: int, db: Session = Depends(get_db)) -> BankStatementLineRead:
+    try:
+        return unreconcile_bank_statement_line(db, line_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/journal-entries", response_model=list[JournalEntryRead])
 def get_journal_entries(limit: int = 25, db: Session = Depends(get_db)) -> list[JournalEntryRead]:
     return recent_entries(db, limit=limit)
@@ -366,6 +546,19 @@ def get_journal_entries(limit: int = 25, db: Session = Depends(get_db)) -> list[
 def post_journal_entry(payload: JournalEntryCreate, db: Session = Depends(get_db)) -> JournalEntryRead:
     try:
         entry = create_journal_entry(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return serialize_entry(entry)
+
+
+@app.post("/journal-entries/{entry_id}/reverse", response_model=JournalEntryRead, status_code=201)
+def post_journal_entry_reversal(
+    entry_id: int,
+    payload: JournalEntryReversalCreate,
+    db: Session = Depends(get_db),
+) -> JournalEntryRead:
+    try:
+        entry = reverse_journal_entry(db, entry_id, reversal_date=payload.reversal_date, memo=payload.memo)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return serialize_entry(entry)
@@ -410,6 +603,24 @@ def get_client_history(db: Session = Depends(get_db)) -> ClientHistoryReport:
     return client_history(db)
 
 
+@app.get("/reports/project-profitability", response_model=ProjectProfitabilityReport)
+def get_project_profitability(db: Session = Depends(get_db)) -> ProjectProfitabilityReport:
+    return project_profitability(db)
+
+
 @app.get("/reports/accounts-receivable-ageing", response_model=AccountsReceivableAgeingReport)
 def get_accounts_receivable_ageing(db: Session = Depends(get_db)) -> AccountsReceivableAgeingReport:
     return accounts_receivable_ageing(db)
+
+
+@app.get("/reports/accounts-payable-ageing", response_model=AccountsPayableAgeingReport)
+def get_accounts_payable_ageing(db: Session = Depends(get_db)) -> AccountsPayableAgeingReport:
+    return accounts_payable_ageing(db)
+
+
+@app.get("/reports/bank-reconciliation", response_model=BankReconciliationSummary)
+def get_bank_reconciliation(bank_account_id: int, limit: int = 100, db: Session = Depends(get_db)) -> BankReconciliationSummary:
+    try:
+        return bank_reconciliation_summary(db, bank_account_id=bank_account_id, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

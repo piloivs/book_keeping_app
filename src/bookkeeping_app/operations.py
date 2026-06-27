@@ -5,8 +5,10 @@ import re
 import subprocess
 import urllib.error
 import urllib.request
+import zipfile
 from datetime import UTC, date, datetime
 from decimal import Decimal, ROUND_FLOOR, ROUND_HALF_UP
+from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 
@@ -14,9 +16,15 @@ from sqlalchemy import func, inspect, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from .accounting import create_journal_entry, list_accounts_with_balances
+from .database import Base
 from .models import (
     Account,
     AccountType,
+    ApprovalRequest,
+    ApprovalStatus,
+    AuditEvent,
+    BankStatementLine,
+    BankStatementLineStatus,
     CompanySettings,
     Contact,
     ContactType,
@@ -29,6 +37,8 @@ from .models import (
     JournalLine,
     PayrollRun,
     PayrollStatus,
+    Project,
+    ProjectStatus,
     PurchaseOrder,
     PurchaseOrderLine,
     PurchaseOrderStatus,
@@ -42,6 +52,12 @@ from .models import (
     SalesOrder,
     SalesOrderLine,
     SalesOrderStatus,
+    SupplierBill,
+    SupplierBillLine,
+    SupplierBillStatus,
+    SupplierPayment,
+    SupplierPaymentAllocation,
+    SupplierPaymentStatus,
     TransactionKind,
     TransactionStatus,
     OperationalTransaction,
@@ -49,8 +65,15 @@ from .models import (
 )
 from .schemas import (
     AccountRead,
+    AccountsPayableAgeingReport,
+    AccountsPayableAgeingRow,
     AccountsReceivableAgeingReport,
     AccountsReceivableAgeingRow,
+    ApprovalDecision,
+    ApprovalRequestCreate,
+    AuditEventRead,
+    BankReconciliationSummary,
+    BankStatementLineCreate,
     BalanceSheetReport,
     ClientHistoryEntry,
     ClientHistoryReport,
@@ -61,15 +84,55 @@ from .schemas import (
     CustomerReceiptCreate,
     OperationalTransactionCreate,
     PayrollRunCreate,
+    ProjectCreate,
+    ProjectProfitabilityReport,
+    ProjectProfitabilityRow,
     ProfitAndLossReport,
     PurchaseOrderCreate,
     ReceiptPayload,
     SalesInvoiceCreate,
     SalesOrderCreate,
+    SupplierBillCreate,
+    SupplierPaymentCreate,
 )
 
 RECEIPT_DIR = Path("data/raw/receipts")
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
+
+
+def _export_json_default(value: object) -> str:
+    if isinstance(value, (date, datetime, Decimal)):
+        return str(value)
+    return str(value)
+
+
+def create_backup_export(db: Session) -> tuple[str, bytes]:
+    generated_at = datetime.now(UTC)
+    buffer = BytesIO()
+    table_names: list[str] = []
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+        manifest = {
+            "app": "IntelliArtAI Operations Core",
+            "generated_at": generated_at.isoformat(),
+            "format": "json-table-export-v1",
+            "tables": [],
+        }
+        for table in Base.metadata.sorted_tables:
+            rows = [dict(row) for row in db.execute(select(table)).mappings().all()]
+            table_names.append(table.name)
+            manifest["tables"].append({"name": table.name, "rows": len(rows)})
+            archive.writestr(
+                f"data/{table.name}.json",
+                json.dumps(rows, default=_export_json_default, indent=2, sort_keys=True),
+            )
+        archive.writestr("manifest.json", json.dumps(manifest, indent=2, sort_keys=True))
+        archive.writestr(
+            "README.txt",
+            "This export contains structured JSON snapshots of bookkeeping app tables. "
+            "It is intended for backup, review, and accountant handoff, not direct re-import.\n",
+        )
+    filename = f"intelliartai-bookkeeping-export-{generated_at:%Y%m%d-%H%M%S}.zip"
+    return filename, buffer.getvalue()
 
 
 def apply_local_schema_updates(db: Session) -> None:
@@ -108,11 +171,22 @@ def apply_local_schema_updates(db: Session) -> None:
             ("deposit_due_date", "DATE"),
             ("deposit_status", "VARCHAR(13) NOT NULL DEFAULT 'NOT_REQUESTED'"),
             ("deposit_transaction_id", "INTEGER REFERENCES operational_transactions(id)"),
+            ("project_id", "INTEGER REFERENCES projects(id)"),
         ]
         for column_name, ddl in sales_order_updates:
             if column_name not in columns:
                 db.execute(text(f"ALTER TABLE sales_orders ADD COLUMN {column_name} {ddl}"))
         db.commit()
+    if "operational_transactions" in table_names:
+        columns = {column["name"] for column in inspector.get_columns("operational_transactions")}
+        if "project_id" not in columns:
+            db.execute(text("ALTER TABLE operational_transactions ADD COLUMN project_id INTEGER REFERENCES projects(id)"))
+            db.commit()
+    if "sales_invoices" in table_names:
+        columns = {column["name"] for column in inspector.get_columns("sales_invoices")}
+        if "project_id" not in columns:
+            db.execute(text("ALTER TABLE sales_invoices ADD COLUMN project_id INTEGER REFERENCES projects(id)"))
+            db.commit()
 
 
 def seed_company_settings(db: Session) -> None:
@@ -161,6 +235,50 @@ def create_contact(db: Session, payload: ContactCreate) -> Contact:
 
 def list_contacts(db: Session) -> list[Contact]:
     return list(db.scalars(select(Contact).order_by(Contact.name)).all())
+
+
+def create_project(db: Session, payload: ProjectCreate) -> Project:
+    client = db.get(Contact, payload.client_id)
+    if client is None:
+        raise ValueError(f"Unknown client id: {payload.client_id}")
+    if client.type not in {ContactType.CUSTOMER, ContactType.BOTH}:
+        raise ValueError("Project client must be a customer or both-type contact.")
+    project = Project(**payload.model_dump())
+    db.add(project)
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise ValueError("Project code must be unique.") from exc
+    return get_project(db, project.id)
+
+
+def project_query():
+    return select(Project).options(selectinload(Project.client))
+
+
+def get_project(db: Session, project_id: int) -> Project:
+    project = db.scalar(project_query().where(Project.id == project_id))
+    if project is None:
+        raise ValueError(f"Unknown project id: {project_id}")
+    return project
+
+
+def list_projects(db: Session) -> list[Project]:
+    return list(db.scalars(project_query().order_by(Project.status, Project.project_code)).all())
+
+
+def _validate_project_for_customer(db: Session, project_id: int | None, customer_id: int) -> Project | None:
+    if project_id is None:
+        return None
+    project = db.get(Project, project_id)
+    if project is None:
+        raise ValueError(f"Unknown project id: {project_id}")
+    if project.client_id != customer_id:
+        raise ValueError("Project client must match the customer.")
+    if project.status == ProjectStatus.CANCELLED:
+        raise ValueError("Cancelled projects cannot be linked to new activity.")
+    return project
 
 
 def create_employee(db: Session, payload: EmployeeCreate) -> Employee:
@@ -651,6 +769,12 @@ def create_operational_transaction(db: Session, payload: OperationalTransactionC
 
     if payload.contact_id is not None and db.get(Contact, payload.contact_id) is None:
         raise ValueError(f"Unknown contact id: {payload.contact_id}")
+    if payload.project_id is not None:
+        project = db.get(Project, payload.project_id)
+        if project is None:
+            raise ValueError(f"Unknown project id: {payload.project_id}")
+        if payload.kind in {TransactionKind.INCOME, TransactionKind.DEPOSIT} and payload.contact_id is not None and project.client_id != payload.contact_id:
+            raise ValueError("Income or deposit project must match the customer contact.")
 
     receipt = save_receipt(payload.receipt) if payload.receipt else None
     transaction = OperationalTransaction(
@@ -661,6 +785,7 @@ def create_operational_transaction(db: Session, payload: OperationalTransactionC
         reference=payload.reference,
         amount=payload.amount,
         contact_id=payload.contact_id,
+        project_id=payload.project_id,
         debit_account_id=payload.debit_account_id,
         credit_account_id=payload.credit_account_id,
         receipt=receipt,
@@ -697,6 +822,7 @@ def _post_operational_transaction(db: Session, transaction: OperationalTransacti
         ),
         commit=False,
     )
+    transaction._allow_accounting_post_mutation = True
     transaction.journal_entry_id = entry.id
     transaction.status = TransactionStatus.POSTED
     transaction.posted_at = datetime.now(UTC)
@@ -725,6 +851,7 @@ def get_operational_transaction(db: Session, transaction_id: int) -> Operational
 def transaction_query():
     return select(OperationalTransaction).options(
         selectinload(OperationalTransaction.contact),
+        selectinload(OperationalTransaction.project).selectinload(Project.client),
         selectinload(OperationalTransaction.debit_account),
         selectinload(OperationalTransaction.credit_account),
         selectinload(OperationalTransaction.receipt)
@@ -741,6 +868,312 @@ def list_operational_transactions(db: Session, limit: int = 50) -> list[Operatio
                 OperationalTransaction.id.desc(),
             ).limit(limit)
         ).all()
+    )
+
+
+def _record_audit_event(
+    db: Session,
+    *,
+    entity_type: str,
+    entity_id: int | None,
+    action: str,
+    summary: str,
+    actor: str | None = None,
+    details: dict[str, object] | None = None,
+) -> AuditEvent:
+    event = AuditEvent(
+        entity_type=entity_type,
+        entity_id=entity_id,
+        action=action,
+        actor=actor,
+        summary=summary,
+        details_json=json.dumps(details, default=str, sort_keys=True) if details else None,
+    )
+    db.add(event)
+    return event
+
+
+def list_audit_events(db: Session, limit: int = 100) -> list[AuditEvent]:
+    return list(
+        db.scalars(
+            select(AuditEvent)
+            .order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc())
+            .limit(limit)
+        ).all()
+    )
+
+
+def approval_request_query():
+    return select(ApprovalRequest)
+
+
+def list_approval_requests(
+    db: Session,
+    *,
+    status: ApprovalStatus | None = None,
+    limit: int = 100,
+) -> list[ApprovalRequest]:
+    query = approval_request_query()
+    if status is not None:
+        query = query.where(ApprovalRequest.status == status)
+    return list(
+        db.scalars(
+            query.order_by(
+                ApprovalRequest.requested_at.desc(),
+                ApprovalRequest.id.desc(),
+            ).limit(limit)
+        ).all()
+    )
+
+
+def _latest_approval_request(db: Session, document_type: str, document_id: int, action: str) -> ApprovalRequest | None:
+    return db.scalar(
+        select(ApprovalRequest)
+        .where(ApprovalRequest.document_type == document_type)
+        .where(ApprovalRequest.document_id == document_id)
+        .where(ApprovalRequest.action == action)
+        .order_by(ApprovalRequest.requested_at.desc(), ApprovalRequest.id.desc())
+        .limit(1)
+    )
+
+
+def request_approval(db: Session, payload: ApprovalRequestCreate) -> ApprovalRequest:
+    existing = _latest_approval_request(db, payload.document_type, payload.document_id, payload.action)
+    if existing is not None and existing.status == ApprovalStatus.PENDING:
+        return existing
+    request = ApprovalRequest(**payload.model_dump())
+    db.add(request)
+    db.flush()
+    _record_audit_event(
+        db,
+        entity_type="approval_request",
+        entity_id=request.id,
+        action="requested",
+        actor=payload.requested_by,
+        summary=f"Approval requested for {payload.document_type} #{payload.document_id}.",
+        details={
+            "document_type": payload.document_type,
+            "document_id": payload.document_id,
+            "approval_action": payload.action,
+        },
+    )
+    db.commit()
+    db.refresh(request)
+    return request
+
+
+def approve_request(db: Session, request_id: int, payload: ApprovalDecision) -> ApprovalRequest:
+    request = db.get(ApprovalRequest, request_id)
+    if request is None:
+        raise ValueError(f"Unknown approval request id: {request_id}")
+    if request.status != ApprovalStatus.PENDING:
+        return request
+    request.status = ApprovalStatus.APPROVED
+    request.decided_by = payload.decided_by
+    request.decision_notes = payload.decision_notes
+    request.decided_at = datetime.now(UTC)
+    _record_audit_event(
+        db,
+        entity_type="approval_request",
+        entity_id=request.id,
+        action="approved",
+        actor=payload.decided_by,
+        summary=f"Approval request {request.id} approved.",
+        details={
+            "document_type": request.document_type,
+            "document_id": request.document_id,
+            "approval_action": request.action,
+        },
+    )
+    db.commit()
+    db.refresh(request)
+    return request
+
+
+def reject_request(db: Session, request_id: int, payload: ApprovalDecision) -> ApprovalRequest:
+    request = db.get(ApprovalRequest, request_id)
+    if request is None:
+        raise ValueError(f"Unknown approval request id: {request_id}")
+    if request.status != ApprovalStatus.PENDING:
+        return request
+    request.status = ApprovalStatus.REJECTED
+    request.decided_by = payload.decided_by
+    request.decision_notes = payload.decision_notes
+    request.decided_at = datetime.now(UTC)
+    _record_audit_event(
+        db,
+        entity_type="approval_request",
+        entity_id=request.id,
+        action="rejected",
+        actor=payload.decided_by,
+        summary=f"Approval request {request.id} rejected.",
+        details={
+            "document_type": request.document_type,
+            "document_id": request.document_id,
+            "approval_action": request.action,
+        },
+    )
+    db.commit()
+    db.refresh(request)
+    return request
+
+
+def _ensure_approval_allows_action(db: Session, document_type: str, document_id: int, action: str = "post") -> None:
+    request = _latest_approval_request(db, document_type, document_id, action)
+    if request is None:
+        return
+    if request.status == ApprovalStatus.APPROVED:
+        return
+    if request.status == ApprovalStatus.PENDING:
+        raise ValueError("This document is awaiting approval before posting.")
+    raise ValueError("This document was rejected and cannot be posted without a new approved request.")
+
+
+def bank_statement_line_query():
+    return select(BankStatementLine).options(
+        selectinload(BankStatementLine.bank_account),
+        selectinload(BankStatementLine.journal_entry).selectinload(JournalEntry.lines).selectinload(JournalLine.account),
+    )
+
+
+def get_bank_statement_line(db: Session, line_id: int) -> BankStatementLine:
+    line = db.scalar(bank_statement_line_query().where(BankStatementLine.id == line_id))
+    if line is None:
+        raise ValueError(f"Unknown bank statement line id: {line_id}")
+    return line
+
+
+def list_bank_statement_lines(
+    db: Session,
+    *,
+    bank_account_id: int | None = None,
+    status: BankStatementLineStatus | None = None,
+    limit: int = 100,
+) -> list[BankStatementLine]:
+    query = bank_statement_line_query()
+    if bank_account_id is not None:
+        query = query.where(BankStatementLine.bank_account_id == bank_account_id)
+    if status is not None:
+        query = query.where(BankStatementLine.status == status)
+    return list(
+        db.scalars(
+            query.order_by(
+                BankStatementLine.statement_date.desc(),
+                BankStatementLine.id.desc(),
+            ).limit(limit)
+        ).all()
+    )
+
+
+def create_bank_statement_line(db: Session, payload: BankStatementLineCreate) -> BankStatementLine:
+    bank_account = _get_account(db, payload.bank_account_id)
+    if bank_account.type != AccountType.ASSET:
+        raise ValueError("Bank statement lines must be assigned to a bank or cash asset account.")
+    line = BankStatementLine(
+        bank_account_id=payload.bank_account_id,
+        statement_date=payload.statement_date,
+        description=payload.description,
+        reference=payload.reference,
+        amount=payload.amount,
+        notes=payload.notes,
+    )
+    db.add(line)
+    db.commit()
+    return get_bank_statement_line(db, line.id)
+
+
+def _journal_entry_bank_amount(entry: JournalEntry, bank_account_id: int) -> Decimal:
+    return sum(
+        (
+            line.debit - line.credit
+            for line in entry.lines
+            if line.account_id == bank_account_id
+        ),
+        Decimal("0.00"),
+    ).quantize(Decimal("0.01"))
+
+
+def reconcile_bank_statement_line(db: Session, line_id: int, journal_entry_id: int) -> BankStatementLine:
+    line = db.get(BankStatementLine, line_id)
+    if line is None:
+        raise ValueError(f"Unknown bank statement line id: {line_id}")
+    if line.status == BankStatementLineStatus.RECONCILED:
+        return get_bank_statement_line(db, line.id)
+    entry = db.scalar(
+        select(JournalEntry)
+        .options(selectinload(JournalEntry.lines))
+        .where(JournalEntry.id == journal_entry_id)
+    )
+    if entry is None:
+        raise ValueError(f"Unknown journal entry id: {journal_entry_id}")
+    existing_match = db.scalar(
+        select(BankStatementLine).where(
+            BankStatementLine.journal_entry_id == journal_entry_id,
+            BankStatementLine.id != line_id,
+        )
+    )
+    if existing_match is not None:
+        raise ValueError("This journal entry is already linked to another bank statement line.")
+    bank_amount = _journal_entry_bank_amount(entry, line.bank_account_id)
+    if bank_amount != line.amount:
+        raise ValueError("Journal entry bank movement must match the statement line amount.")
+    line.status = BankStatementLineStatus.RECONCILED
+    line.journal_entry_id = journal_entry_id
+    line.reconciled_at = datetime.now(UTC)
+    _record_audit_event(
+        db,
+        entity_type="bank_statement_line",
+        entity_id=line.id,
+        action="reconciled",
+        summary=f"Bank statement line {line.id} reconciled to journal entry {journal_entry_id}.",
+        details={
+            "journal_entry_id": journal_entry_id,
+            "bank_account_id": line.bank_account_id,
+            "amount": line.amount,
+        },
+    )
+    db.commit()
+    return get_bank_statement_line(db, line.id)
+
+
+def unreconcile_bank_statement_line(db: Session, line_id: int) -> BankStatementLine:
+    line = db.get(BankStatementLine, line_id)
+    if line is None:
+        raise ValueError(f"Unknown bank statement line id: {line_id}")
+    if line.status != BankStatementLineStatus.RECONCILED:
+        return get_bank_statement_line(db, line.id)
+    line.status = BankStatementLineStatus.UNMATCHED
+    line.journal_entry_id = None
+    line.reconciled_at = None
+    _record_audit_event(
+        db,
+        entity_type="bank_statement_line",
+        entity_id=line.id,
+        action="unreconciled",
+        summary=f"Bank statement line {line.id} was unreconciled.",
+        details={"bank_account_id": line.bank_account_id, "amount": line.amount},
+    )
+    db.commit()
+    return get_bank_statement_line(db, line.id)
+
+
+def bank_reconciliation_summary(db: Session, bank_account_id: int, limit: int = 100) -> BankReconciliationSummary:
+    bank_account = _get_account(db, bank_account_id)
+    if bank_account.type != AccountType.ASSET:
+        raise ValueError("Bank reconciliation account must be an asset account.")
+    lines = list_bank_statement_lines(db, bank_account_id=bank_account_id, limit=limit)
+    reconciled_lines = [line for line in lines if line.status == BankStatementLineStatus.RECONCILED]
+    unmatched_lines = [line for line in lines if line.status == BankStatementLineStatus.UNMATCHED]
+    statement_total = sum((line.amount for line in lines), Decimal("0.00")).quantize(Decimal("0.01"))
+    reconciled_total = sum((line.amount for line in reconciled_lines), Decimal("0.00")).quantize(Decimal("0.01"))
+    return BankReconciliationSummary(
+        bank_account=AccountRead.model_validate(bank_account).model_copy(update={"balance": Decimal("0.00")}),
+        statement_total=statement_total,
+        reconciled_total=reconciled_total,
+        unreconciled_total=(statement_total - reconciled_total).quantize(Decimal("0.01")),
+        unmatched_count=len(unmatched_lines),
+        reconciled_count=len(reconciled_lines),
+        lines=lines,
     )
 
 
@@ -852,6 +1285,352 @@ def cancel_purchase_order(db: Session, purchase_order_id: int) -> PurchaseOrder:
     return get_purchase_order(db, purchase_order.id)
 
 
+def _generate_supplier_bill_number(db: Session, bill_date) -> str:
+    prefix = f"BILL-{bill_date:%Y%m}"
+    count = db.scalar(select(func.count()).select_from(SupplierBill).where(SupplierBill.bill_number.like(f"{prefix}-%"))) or 0
+    return f"{prefix}-{count + 1:04d}"
+
+
+def _validate_vendor_for_supplier_bill(vendor: Contact) -> None:
+    if vendor.type not in {ContactType.VENDOR, ContactType.BOTH}:
+        raise ValueError("Supplier bills can only be assigned to vendor contacts.")
+
+
+def _validate_supplier_bill_lines(db: Session, payload: SupplierBillCreate) -> None:
+    for line in payload.lines:
+        account = _get_account(db, line.expense_account_id)
+        if account.type not in {AccountType.EXPENSE, AccountType.ASSET}:
+            raise ValueError("Supplier bill lines must use expense or asset accounts.")
+
+
+def supplier_bill_query():
+    return select(SupplierBill).options(
+        selectinload(SupplierBill.vendor),
+        selectinload(SupplierBill.purchase_order)
+        .selectinload(PurchaseOrder.lines)
+        .selectinload(PurchaseOrderLine.expense_account),
+        selectinload(SupplierBill.purchase_order).selectinload(PurchaseOrder.vendor),
+        selectinload(SupplierBill.project).selectinload(Project.client),
+        selectinload(SupplierBill.lines).selectinload(SupplierBillLine.expense_account),
+        selectinload(SupplierBill.allocations).selectinload(SupplierPaymentAllocation.payment),
+    )
+
+
+def get_supplier_bill(db: Session, bill_id: int) -> SupplierBill:
+    bill = db.scalar(supplier_bill_query().where(SupplierBill.id == bill_id))
+    if bill is None:
+        raise ValueError(f"Unknown supplier bill id: {bill_id}")
+    return bill
+
+
+def list_supplier_bills(db: Session, limit: int = 50) -> list[SupplierBill]:
+    return list(
+        db.scalars(
+            supplier_bill_query().order_by(
+                SupplierBill.bill_date.desc(),
+                SupplierBill.id.desc(),
+            ).limit(limit)
+        ).all()
+    )
+
+
+def create_supplier_bill(db: Session, payload: SupplierBillCreate) -> SupplierBill:
+    vendor = db.get(Contact, payload.vendor_id)
+    if vendor is None:
+        raise ValueError(f"Unknown vendor id: {payload.vendor_id}")
+    _validate_vendor_for_supplier_bill(vendor)
+    _validate_supplier_bill_lines(db, payload)
+
+    if payload.purchase_order_id is not None:
+        purchase_order = db.get(PurchaseOrder, payload.purchase_order_id)
+        if purchase_order is None:
+            raise ValueError(f"Unknown purchase order id: {payload.purchase_order_id}")
+        if purchase_order.vendor_id != payload.vendor_id:
+            raise ValueError("Supplier bill vendor must match the linked purchase order vendor.")
+        if purchase_order.status == PurchaseOrderStatus.CANCELLED:
+            raise ValueError("Cancelled purchase orders cannot be billed.")
+
+    if payload.project_id is not None:
+        project = db.get(Project, payload.project_id)
+        if project is None:
+            raise ValueError(f"Unknown project id: {payload.project_id}")
+        if project.status == ProjectStatus.CANCELLED:
+            raise ValueError("Cancelled projects cannot be linked to new activity.")
+
+    bill = SupplierBill(
+        bill_number=payload.bill_number or _generate_supplier_bill_number(db, payload.bill_date),
+        status=payload.status,
+        vendor_id=payload.vendor_id,
+        purchase_order_id=payload.purchase_order_id,
+        project_id=payload.project_id,
+        bill_date=payload.bill_date,
+        due_date=payload.due_date,
+        currency=payload.currency,
+        payment_terms=payload.payment_terms,
+        reference=payload.reference,
+        notes=payload.notes,
+    )
+    for line in payload.lines:
+        bill.lines.append(SupplierBillLine(**line.model_dump()))
+    db.add(bill)
+    db.flush()
+
+    if bill.status == SupplierBillStatus.POSTED:
+        _post_supplier_bill(db, bill)
+
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise ValueError("Supplier bill number must be unique.") from exc
+    return get_supplier_bill(db, bill.id)
+
+
+def _post_supplier_bill(db: Session, bill: SupplierBill) -> None:
+    if bill.status == SupplierBillStatus.VOIDED:
+        raise ValueError("Voided supplier bills cannot be posted.")
+    if bill.journal_entry_id is not None:
+        return
+    if not bill.lines:
+        raise ValueError("Supplier bill must have at least one line.")
+
+    ap_account = _get_account_by_code(db, "2000")
+    lines = []
+    for bill_line in bill.lines:
+        lines.append(
+            {
+                "account_id": bill_line.expense_account_id,
+                "debit": bill_line.line_subtotal,
+                "description": bill_line.description,
+            }
+        )
+    if bill.tax_total > 0:
+        gst_input_account = _get_account_by_code(db, "2210")
+        lines.append(
+            {
+                "account_id": gst_input_account.id,
+                "debit": bill.tax_total,
+                "description": f"Input tax for {bill.bill_number}",
+            }
+        )
+    lines.append(
+        {
+            "account_id": ap_account.id,
+            "credit": bill.total,
+            "description": f"Accounts payable for {bill.bill_number}",
+        }
+    )
+
+    entry = create_journal_entry(
+        db,
+        JournalEntryCreate(
+            entry_date=bill.bill_date,
+            memo=f"Supplier bill {bill.bill_number}",
+            reference=bill.reference or bill.bill_number,
+            lines=lines,
+        ),
+        commit=False,
+    )
+    bill._allow_accounting_post_mutation = True
+    bill.journal_entry_id = entry.id
+    bill.status = SupplierBillStatus.POSTED
+    bill.posted_at = datetime.now(UTC)
+    if bill.purchase_order is not None and bill.purchase_order.status not in {PurchaseOrderStatus.CLOSED, PurchaseOrderStatus.CANCELLED}:
+        bill.purchase_order.status = PurchaseOrderStatus.BILLED
+    _record_audit_event(
+        db,
+        entity_type="supplier_bill",
+        entity_id=bill.id,
+        action="posted",
+        summary=f"Supplier bill {bill.bill_number} posted to Accounts Payable.",
+        details={
+            "journal_entry_id": entry.id,
+            "vendor_id": bill.vendor_id,
+            "total": bill.total,
+        },
+    )
+
+
+def post_supplier_bill(db: Session, bill_id: int) -> SupplierBill:
+    bill = db.scalar(
+        select(SupplierBill)
+        .options(
+            selectinload(SupplierBill.lines),
+            selectinload(SupplierBill.purchase_order),
+        )
+        .where(SupplierBill.id == bill_id)
+    )
+    if bill is None:
+        raise ValueError(f"Unknown supplier bill id: {bill_id}")
+    if bill.status == SupplierBillStatus.POSTED:
+        return get_supplier_bill(db, bill.id)
+    _ensure_approval_allows_action(db, "supplier_bill", bill.id)
+    _post_supplier_bill(db, bill)
+    db.commit()
+    return get_supplier_bill(db, bill.id)
+
+
+def _generate_supplier_payment_number(db: Session, payment_date) -> str:
+    prefix = f"PAY-{payment_date:%Y%m}"
+    count = db.scalar(select(func.count()).select_from(SupplierPayment).where(SupplierPayment.payment_number.like(f"{prefix}-%"))) or 0
+    return f"{prefix}-{count + 1:04d}"
+
+
+def supplier_payment_query():
+    return select(SupplierPayment).options(
+        selectinload(SupplierPayment.vendor),
+        selectinload(SupplierPayment.bank_account),
+        selectinload(SupplierPayment.allocations)
+        .selectinload(SupplierPaymentAllocation.bill)
+        .selectinload(SupplierBill.vendor),
+        selectinload(SupplierPayment.allocations)
+        .selectinload(SupplierPaymentAllocation.bill)
+        .selectinload(SupplierBill.lines)
+        .selectinload(SupplierBillLine.expense_account),
+        selectinload(SupplierPayment.allocations)
+        .selectinload(SupplierPaymentAllocation.bill)
+        .selectinload(SupplierBill.allocations)
+        .selectinload(SupplierPaymentAllocation.payment),
+    )
+
+
+def get_supplier_payment(db: Session, payment_id: int) -> SupplierPayment:
+    payment = db.scalar(supplier_payment_query().where(SupplierPayment.id == payment_id))
+    if payment is None:
+        raise ValueError(f"Unknown supplier payment id: {payment_id}")
+    return payment
+
+
+def list_supplier_payments(db: Session, limit: int = 50) -> list[SupplierPayment]:
+    return list(
+        db.scalars(
+            supplier_payment_query().order_by(
+                SupplierPayment.payment_date.desc(),
+                SupplierPayment.id.desc(),
+            ).limit(limit)
+        ).all()
+    )
+
+
+def _post_supplier_payment(db: Session, payment: SupplierPayment) -> None:
+    if payment.status == SupplierPaymentStatus.VOIDED:
+        raise ValueError("Voided supplier payments cannot be posted.")
+    if payment.journal_entry_id is not None:
+        return
+    ap_account = _get_account_by_code(db, "2000")
+    entry = create_journal_entry(
+        db,
+        JournalEntryCreate(
+            entry_date=payment.payment_date,
+            memo=f"Supplier payment {payment.payment_number}",
+            reference=payment.reference or payment.payment_number,
+            lines=[
+                {
+                    "account_id": ap_account.id,
+                    "debit": payment.amount,
+                    "description": f"Payment {payment.payment_number}",
+                },
+                {
+                    "account_id": payment.bank_account_id,
+                    "credit": payment.amount,
+                    "description": f"Payment {payment.payment_number}",
+                },
+            ],
+        ),
+        commit=False,
+    )
+    payment._allow_accounting_post_mutation = True
+    payment.journal_entry_id = entry.id
+    payment.status = SupplierPaymentStatus.POSTED
+    payment.posted_at = datetime.now(UTC)
+    _record_audit_event(
+        db,
+        entity_type="supplier_payment",
+        entity_id=payment.id,
+        action="posted",
+        summary=f"Supplier payment {payment.payment_number} posted against Accounts Payable.",
+        details={
+            "journal_entry_id": entry.id,
+            "vendor_id": payment.vendor_id,
+            "amount": payment.amount,
+        },
+    )
+
+
+def create_supplier_payment(db: Session, payload: SupplierPaymentCreate) -> SupplierPayment:
+    if payload.status not in {SupplierPaymentStatus.DRAFT, SupplierPaymentStatus.POSTED}:
+        raise ValueError("Supplier payments can only be created as draft or posted.")
+    vendor = db.get(Contact, payload.vendor_id)
+    if vendor is None:
+        raise ValueError(f"Unknown vendor id: {payload.vendor_id}")
+    _validate_vendor_for_supplier_bill(vendor)
+    bank_account = _get_account(db, payload.bank_account_id)
+    if bank_account.type != AccountType.ASSET:
+        raise ValueError("Supplier payments must credit a cash or bank asset account.")
+
+    bills_by_id: dict[int, SupplierBill] = {}
+    allocation_totals_by_bill: dict[int, Decimal] = {}
+    for allocation_payload in payload.allocations:
+        bill = get_supplier_bill(db, allocation_payload.bill_id)
+        if bill.vendor_id != payload.vendor_id:
+            raise ValueError("Payment allocations must use supplier bills for the same vendor.")
+        if bill.status != SupplierBillStatus.POSTED:
+            raise ValueError("Supplier payments can only be allocated to posted supplier bills.")
+        allocation_total = allocation_totals_by_bill.get(bill.id, Decimal("0.00")) + allocation_payload.amount
+        if allocation_total > bill.amount_due:
+            raise ValueError(f"Allocation exceeds amount due for supplier bill {bill.bill_number}.")
+        bills_by_id[bill.id] = bill
+        allocation_totals_by_bill[bill.id] = allocation_total
+
+    payment = SupplierPayment(
+        payment_number=payload.payment_number or _generate_supplier_payment_number(db, payload.payment_date),
+        status=payload.status,
+        vendor_id=payload.vendor_id,
+        payment_date=payload.payment_date,
+        currency=payload.currency,
+        amount=payload.amount,
+        bank_account_id=payload.bank_account_id,
+        reference=payload.reference,
+        notes=payload.notes,
+    )
+    for allocation_payload in payload.allocations:
+        payment.allocations.append(
+            SupplierPaymentAllocation(
+                bill=bills_by_id[allocation_payload.bill_id],
+                amount=allocation_payload.amount,
+            )
+        )
+    db.add(payment)
+    db.flush()
+    if payment.status == SupplierPaymentStatus.POSTED:
+        _post_supplier_payment(db, payment)
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise ValueError("Supplier payment number must be unique.") from exc
+    return get_supplier_payment(db, payment.id)
+
+
+def post_supplier_payment(db: Session, payment_id: int) -> SupplierPayment:
+    payment = db.scalar(
+        select(SupplierPayment)
+        .options(selectinload(SupplierPayment.allocations).selectinload(SupplierPaymentAllocation.bill))
+        .where(SupplierPayment.id == payment_id)
+    )
+    if payment is None:
+        raise ValueError(f"Unknown supplier payment id: {payment_id}")
+    if payment.status == SupplierPaymentStatus.POSTED:
+        return get_supplier_payment(db, payment.id)
+    _ensure_approval_allows_action(db, "supplier_payment", payment.id)
+    for allocation in payment.allocations:
+        if allocation.amount > allocation.bill.amount_due:
+            raise ValueError(f"Allocation exceeds amount due for supplier bill {allocation.bill.bill_number}.")
+    _post_supplier_payment(db, payment)
+    db.commit()
+    return get_supplier_payment(db, payment.id)
+
+
 def _generate_sales_order_number(db: Session, received_date) -> str:
     prefix = f"SO-{received_date:%Y%m}"
     count = db.scalar(select(func.count()).select_from(SalesOrder).where(SalesOrder.order_number.like(f"{prefix}-%"))) or 0
@@ -906,6 +1685,7 @@ def _post_sales_order_deposit(db: Session, sales_order: SalesOrder) -> None:
         reference=sales_order.order_number,
         amount=sales_order.deposit_amount,
         contact_id=sales_order.customer_id,
+        project_id=sales_order.project_id,
         debit_account_id=bank_account.id,
         credit_account_id=deferred_revenue.id,
     )
@@ -918,6 +1698,7 @@ def _post_sales_order_deposit(db: Session, sales_order: SalesOrder) -> None:
 def sales_order_query():
     return select(SalesOrder).options(
         selectinload(SalesOrder.customer),
+        selectinload(SalesOrder.project).selectinload(Project.client),
         selectinload(SalesOrder.lines).selectinload(SalesOrderLine.revenue_account),
         selectinload(SalesOrder.invoices).selectinload(SalesInvoice.lines),
         selectinload(SalesOrder.invoices)
@@ -949,6 +1730,7 @@ def create_sales_order(db: Session, payload: SalesOrderCreate) -> SalesOrder:
     if customer is None:
         raise ValueError(f"Unknown customer id: {payload.customer_id}")
     _validate_customer_for_sales_order(customer)
+    _validate_project_for_customer(db, payload.project_id, payload.customer_id)
     _validate_sales_order_lines(db, payload)
     deposit_amount = _deposit_amount_for_order(payload)
     deposit_rate = payload.deposit_rate or (Decimal("0.1000") if payload.deposit_required else Decimal("0.0000"))
@@ -963,6 +1745,7 @@ def create_sales_order(db: Session, payload: SalesOrderCreate) -> SalesOrder:
         client_po_number=client_po_number or f"NO-PO-{order_number}",
         status=payload.status,
         customer_id=payload.customer_id,
+        project_id=payload.project_id,
         received_date=payload.received_date,
         expected_delivery_date=payload.expected_delivery_date,
         currency=payload.currency,
@@ -1093,6 +1876,7 @@ def _single_open_sales_order_for_customer(db: Session, customer_id: int) -> Sale
 def sales_invoice_query():
     return select(SalesInvoice).options(
         selectinload(SalesInvoice.customer),
+        selectinload(SalesInvoice.project).selectinload(Project.client),
         selectinload(SalesInvoice.sales_order).selectinload(SalesOrder.customer),
         selectinload(SalesInvoice.sales_order).selectinload(SalesOrder.lines).selectinload(SalesOrderLine.revenue_account),
         selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.revenue_account),
@@ -1204,8 +1988,12 @@ def create_sales_invoice(db: Session, payload: SalesInvoiceCreate) -> SalesInvoi
             raise ValueError(f"Unknown sales order id: {payload.sales_order_id}")
         if sales_order.customer_id != payload.customer_id:
             raise ValueError("Sales invoice customer must match the linked sales order customer.")
+        if payload.project_id is not None and sales_order.project_id is not None and payload.project_id != sales_order.project_id:
+            raise ValueError("Sales invoice project must match the linked sales booking project.")
     else:
         sales_order = _single_open_sales_order_for_customer(db, payload.customer_id)
+    project_id = payload.project_id if payload.project_id is not None else sales_order.project_id if sales_order is not None else None
+    _validate_project_for_customer(db, project_id, payload.customer_id)
     _validate_sales_invoice_lines(db, payload)
 
     invoice = SalesInvoice(
@@ -1213,6 +2001,7 @@ def create_sales_invoice(db: Session, payload: SalesInvoiceCreate) -> SalesInvoi
         status=payload.status,
         customer_id=payload.customer_id,
         sales_order_id=sales_order.id if sales_order is not None else None,
+        project_id=project_id,
         issue_date=payload.issue_date,
         due_date=payload.due_date,
         currency=payload.currency,
@@ -1271,9 +2060,13 @@ def link_sales_invoice_to_sales_order(db: Session, invoice_id: int, sales_order_
         raise ValueError("Closed or cancelled sales bookings cannot be linked.")
     if invoice.total > sales_order.unbilled_total:
         raise ValueError("Invoice total exceeds the sales booking unbilled amount.")
+    if invoice.project_id is not None and sales_order.project_id is not None and invoice.project_id != sales_order.project_id:
+        raise ValueError("Sales invoice project must match the linked sales booking project.")
 
     invoice.sales_order_id = sales_order.id
     invoice.sales_order = sales_order
+    if invoice.project_id is None:
+        invoice.project_id = sales_order.project_id
     _refresh_sales_order_invoice_status(sales_order)
     db.commit()
     return get_sales_invoice(db, invoice.id)
@@ -1556,6 +2349,7 @@ def _post_payroll_run(db: Session, payroll: PayrollRun) -> None:
         ),
         commit=False,
     )
+    payroll._allow_accounting_post_mutation = True
     payroll.journal_entry_id = entry.id
     payroll.status = PayrollStatus.POSTED
     payroll.posted_at = datetime.now(UTC)
@@ -1663,6 +2457,62 @@ def client_history(db: Session) -> ClientHistoryReport:
         receivable_total=sum((entry.receivable_total for entry in entries), Decimal("0.00")).quantize(Decimal("0.01")),
         unbilled_total=sum((entry.unbilled_total for entry in entries), Decimal("0.00")).quantize(Decimal("0.01")),
         clients=entries,
+    )
+
+
+def project_profitability(db: Session) -> ProjectProfitabilityReport:
+    projects = list_projects(db)
+    invoices = list_sales_invoices(db, limit=1000)
+    transactions = list_operational_transactions(db, limit=1000)
+    supplier_bills = list_supplier_bills(db, limit=1000)
+    rows: list[ProjectProfitabilityRow] = []
+    for project in projects:
+        project_invoices = [
+            invoice
+            for invoice in invoices
+            if invoice.project_id == project.id and invoice.status not in {SalesInvoiceStatus.DRAFT, SalesInvoiceStatus.VOIDED}
+        ]
+        project_transactions = [
+            transaction
+            for transaction in transactions
+            if transaction.project_id == project.id and transaction.status == TransactionStatus.POSTED
+        ]
+        project_supplier_bills = [
+            bill
+            for bill in supplier_bills
+            if bill.project_id == project.id and bill.status == SupplierBillStatus.POSTED
+        ]
+        invoiced_total = sum((invoice.total for invoice in project_invoices), Decimal("0.00")).quantize(Decimal("0.01"))
+        revenue_recognized = sum((invoice.subtotal for invoice in project_invoices), Decimal("0.00")).quantize(Decimal("0.01"))
+        direct_costs = sum(
+            (transaction.amount for transaction in project_transactions if transaction.kind == TransactionKind.EXPENSE),
+            Decimal("0.00"),
+        ).quantize(Decimal("0.01"))
+        direct_costs = (
+            direct_costs + sum((bill.subtotal for bill in project_supplier_bills), Decimal("0.00"))
+        ).quantize(Decimal("0.01"))
+        gross_profit = (revenue_recognized - direct_costs).quantize(Decimal("0.01"))
+        gross_margin = None if revenue_recognized == 0 else (gross_profit / revenue_recognized).quantize(Decimal("0.0001"))
+        rows.append(
+            ProjectProfitabilityRow(
+                project=project,
+                contract_value=project.contract_value,
+                invoiced_total=invoiced_total,
+                revenue_recognized=revenue_recognized,
+                direct_costs=direct_costs,
+                gross_profit=gross_profit,
+                gross_margin=gross_margin,
+                receipts_count=sum(1 for transaction in project_transactions if transaction.receipt_id is not None),
+            )
+        )
+
+    return ProjectProfitabilityReport(
+        contract_value=sum((row.contract_value for row in rows), Decimal("0.00")).quantize(Decimal("0.01")),
+        invoiced_total=sum((row.invoiced_total for row in rows), Decimal("0.00")).quantize(Decimal("0.01")),
+        revenue_recognized=sum((row.revenue_recognized for row in rows), Decimal("0.00")).quantize(Decimal("0.01")),
+        direct_costs=sum((row.direct_costs for row in rows), Decimal("0.00")).quantize(Decimal("0.01")),
+        gross_profit=sum((row.gross_profit for row in rows), Decimal("0.00")).quantize(Decimal("0.01")),
+        rows=rows,
     )
 
 
@@ -1801,6 +2651,69 @@ def accounts_receivable_ageing(db: Session, as_of: date | None = None) -> Accoun
     ageing_rows.sort(key=lambda row: (row.customer_name.lower(), row.customer_id or 0))
     total = sum(totals.values(), Decimal("0.00"))
     return AccountsReceivableAgeingReport(
+        as_of=report_date,
+        current=totals["current"].quantize(Decimal("0.01")),
+        days_31_60=totals["days_31_60"].quantize(Decimal("0.01")),
+        days_61_90=totals["days_61_90"].quantize(Decimal("0.01")),
+        days_over_90=totals["days_over_90"].quantize(Decimal("0.01")),
+        total=total.quantize(Decimal("0.01")),
+        rows=ageing_rows,
+    )
+
+
+def accounts_payable_ageing(db: Session, as_of: date | None = None) -> AccountsPayableAgeingReport:
+    report_date = as_of or date.today()
+    totals = {
+        "current": Decimal("0.00"),
+        "days_31_60": Decimal("0.00"),
+        "days_61_90": Decimal("0.00"),
+        "days_over_90": Decimal("0.00"),
+    }
+    row_buckets_by_vendor: dict[tuple[int | None, str], dict[str, Decimal]] = {}
+
+    bills = db.scalars(
+        supplier_bill_query()
+        .where(SupplierBill.status == SupplierBillStatus.POSTED)
+        .where(SupplierBill.bill_date <= report_date)
+    ).all()
+    for bill in bills:
+        if bill.amount_due <= 0:
+            continue
+        key = (bill.vendor_id, bill.vendor.name)
+        buckets = row_buckets_by_vendor.setdefault(
+            key,
+            {
+                "current": Decimal("0.00"),
+                "days_31_60": Decimal("0.00"),
+                "days_61_90": Decimal("0.00"),
+                "days_over_90": Decimal("0.00"),
+            },
+        )
+        bucket = _ar_bucket_name(bill.due_date, report_date)
+        buckets[bucket] += bill.amount_due
+
+    ageing_rows: list[AccountsPayableAgeingRow] = []
+    for (vendor_id, vendor_name), buckets in row_buckets_by_vendor.items():
+        row_total = sum(buckets.values(), Decimal("0.00"))
+        if row_total <= 0:
+            continue
+        for bucket, amount in buckets.items():
+            totals[bucket] += amount
+        ageing_rows.append(
+            AccountsPayableAgeingRow(
+                vendor_id=vendor_id,
+                vendor_name=vendor_name,
+                current=buckets["current"].quantize(Decimal("0.01")),
+                days_31_60=buckets["days_31_60"].quantize(Decimal("0.01")),
+                days_61_90=buckets["days_61_90"].quantize(Decimal("0.01")),
+                days_over_90=buckets["days_over_90"].quantize(Decimal("0.01")),
+                total=row_total.quantize(Decimal("0.01")),
+            )
+        )
+
+    ageing_rows.sort(key=lambda row: (row.vendor_name.lower(), row.vendor_id or 0))
+    total = sum(totals.values(), Decimal("0.00"))
+    return AccountsPayableAgeingReport(
         as_of=report_date,
         current=totals["current"].quantize(Decimal("0.01")),
         days_31_60=totals["days_31_60"].quantize(Decimal("0.01")),
